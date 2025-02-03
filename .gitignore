@@ -1,0 +1,22 @@
+# Ignorar archivos y carpetas recomendados
+.env
+package-lock.json
+wallet-data.txt
+node_modules/
+dist/  # Ignorar el directorio de salida de compilación
+*.log  # Ignorar archivos de log
+*.tmp  # Ignorar archivos temporales
+.vscode/  # Ignorar la carpeta de configuración de Visual Studio Code
+
+# Ignorar archivos de configuración de IDEs
+.idea/  # Ignorar la carpeta de configuración de IntelliJ IDEA
+*.sublime-workspace  # Ignorar archivos de trabajo de Sublime Text
+*.sublime-project  # Ignorar proyectos de Sublime Text
+
+# Ignorar archivos de sistema
+.DS_Store  # Ignorar archivos de sistema de macOS
+Thumbs.db  # Ignorar archivos de miniaturas de Windows
+
+# Ignorar archivos de dependencias
+npm-debug.log  # Ignorar archivos de log de npm
+yarn-error.log  # Ignorar archivos de log de yarn

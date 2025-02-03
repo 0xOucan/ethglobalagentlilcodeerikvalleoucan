@@ -1,0 +1,24 @@
+{
+  "name": "coinbase-chatbot",
+  "version": "1.0.0",
+  "description": "Coinbase CDP AgentKit Chatbot",
+  "main": "dist/chatbot.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && node dist/chatbot.js",
+    "dev": "ts-node chatbot.ts"
+  },
+  "dependencies": {
+    "@coinbase/agentkit": "latest",
+    "@coinbase/agentkit-langchain": "^0.1.0",
+    "@langchain/core": "latest",
+    "@langchain/langgraph": "latest",
+    "@langchain/openai": "latest",
+    "dotenv": "latest",
+    "typescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.1"
+  }
+}
