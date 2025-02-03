@@ -1,7 +1,7 @@
 # Ignorar archivos y carpetas recomendados
 .env
 package-lock.json
-wallet-data.txt
+wallet_data.txt
 node_modules/
 dist/  # Ignorar el directorio de salida de compilación
 *.log  # Ignorar archivos de log
