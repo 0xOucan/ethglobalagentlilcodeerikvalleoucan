@@ -7,6 +7,7 @@ import {
     cdpApiActionProvider,
     cdpWalletActionProvider,
     pythActionProvider,
+    customActionProvider,
   } from "@coinbase/agentkit";
   
   import { getLangChainTools } from "@coinbase/agentkit-langchain";
@@ -17,6 +18,8 @@ import {
   import * as dotenv from "dotenv";
   import * as fs from "fs";
   import * as readline from "readline";
+  import { z } from "zod";
+  import { v4 as uuidv4 } from "uuid";
   
   dotenv.config();
   /**
@@ -56,6 +59,70 @@ function validateEnvironment(): void {
   
   // Configure a file to persist the agent's CDP MPC Wallet Data
   const WALLET_DATA_FILE = "wallet_data.txt";
+  
+  /* ────────────────────────────────
+     Nuevas acciones personalizadas
+     ──────────────────────────────── */
+  
+  // Acción para almacenar el perfil del comerciante
+  const customStoreProfileAction = customActionProvider({
+    name: "store_profile",
+    description: "Almacenar perfil de comerciante: nombre del propietario, nombre de la tienda y descripción breve.",
+    schema: z.object({
+      owner: z.string().min(1).describe("Nombre del propietario"),
+      storeName: z.string().min(1).describe("Nombre de la tienda"),
+      description: z.string().min(1).describe("Descripción breve de la tienda"),
+    }),
+    invoke: async (_walletProvider, args) => {
+      // Generamos un objeto con el perfil del comerciante
+      const merchantProfile = {
+        id: uuidv4(),
+        owner: args.owner,
+        storeName: args.storeName,
+        description: args.description,
+      };
+  
+      // AQUÍ: Integrar con SecretVault utilizando nillion-sv-wrappers para almacenar merchantProfile.
+      // Por ejemplo:
+      // const collection = new SecretVaultWrapper(orgConfig.nodes, orgConfig.orgCredentials, MERCHANT_SCHEMA_ID);
+      // await collection.init();
+      // const result = await collection.writeToNodes([merchantProfile]);
+  
+      console.log("Registrando perfil del comerciante:", merchantProfile);
+      return `Perfil registrado: ${merchantProfile.id}`;
+    },
+  });
+  
+  // Acción para registrar un producto en el inventario
+  const customRegisterProductAction = customActionProvider({
+    name: "register_product",
+    description: "Registrar producto en inventario: código, nombre y descripción (máximo 4 palabras).",
+    schema: z.object({
+      productCode: z.string().min(1).describe("Código del producto"),
+      productName: z.string().min(1).describe("Nombre del producto"),
+      productDescription: z.string().min(1).describe("Descripción breve (máx 4 palabras)"),
+    }),
+    invoke: async (_walletProvider, args) => {
+      // Aseguramos que la descripción tenga máximo 4 palabras
+      let palabras = args.productDescription.split(/\s+/);
+      if (palabras.length > 4) {
+        palabras = palabras.slice(0, 4);
+      }
+      const description = palabras.join(" ");
+  
+      const productEntry = {
+        id: uuidv4(),
+        productCode: args.productCode,
+        productName: args.productName,
+        productDescription: description,
+      };
+  
+      // AQUÍ: Integrar con SecretVault para almacenar productEntry en la colección de inventario.
+      console.log("Registrando producto:", productEntry);
+      return `Producto registrado: ${productEntry.id}`;
+    },
+  });
+  
   /**
  * Initialize the agent with CDP Agentkit
  *
@@ -131,6 +198,8 @@ async function initializeAgent() {
             apiKeyName: config.apiKeyName,
             apiKeyPrivateKey: config.apiKeyPrivateKey,
           }),
+          customStoreProfileAction,
+          customRegisterProductAction,
         ],
       });
   
@@ -146,16 +215,10 @@ async function initializeAgent() {
         tools,
         checkpointSaver: memory,
         messageModifier: `
-          You are a helpful agent that can interact onchain using the Coinbase Developer Platform AgentKit. You are 
-          empowered to interact onchain using your tools. If you ever need funds, you can request them from the 
-          faucet if you are on network ID 'base-sepolia'. If not, you can provide your wallet details and request 
-          funds from the user. Before executing your first action, get the wallet details to see what network 
-          you're on. If there is a 5XX (internal) HTTP error code, ask the user to try again later. If someone 
-          asks you to do something you can't do with your currently available tools, you must say so, and 
-          encourage them to implement it themselves using the CDP SDK + Agentkit, recommend they go to 
-          docs.cdp.coinbase.com for more information. Be concise and helpful with your responses. Refrain from 
-          restating your tools' descriptions unless it is explicitly requested.
-          `,
+          Eres un agente útil que puede interactuar onchain usando el Coinbase Developer Platform AgentKit.
+          Tienes acceso a herramientas para interactuar onchain. Al ejecutar una acción, verifica si necesitas almacenar
+          el perfil del comerciante o registrar un producto en inventario, según la solicitud del usuario.
+        `,
       });
   
       // Save wallet data
@@ -177,8 +240,8 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
     while (true) {
       try {
         const thought =
-          "Be creative and do something interesting on the blockchain. " +
-          "Choose an action or set of actions and execute it that highlights your abilities.";
+          "Sé creativo y haz algo interesante onchain. " +
+          "Elige una acción que resalte tus habilidades y ejecútala.";
   
         const stream = await agent.stream({ messages: [new HumanMessage(thought)] }, config);
   

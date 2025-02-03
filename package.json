@@ -15,7 +15,11 @@
     "@langchain/langgraph": "latest",
     "@langchain/openai": "latest",
     "dotenv": "latest",
-    "typescript": "^5.0.0"
+    "nillion-sv-wrappers": "^1.0.4",
+    "node-fetch": "^3.3.2",
+    "typescript": "^5.0.0",
+    "uuid": "latest",
+    "zod": "latest"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
