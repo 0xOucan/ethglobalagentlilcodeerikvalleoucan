@@ -20,6 +20,7 @@ import {
   import * as readline from "readline";
   import { z } from "zod";
   import { v4 as uuidv4 } from "uuid";
+  import { Bot as TelegramBot } from "grammy";
   
   dotenv.config();
   /**
@@ -264,11 +265,175 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
     }
   }
   
+  // Global variables for logs and developer mode.
+  let developmentMode = false;
+  const logBuffer: string[] = [];
+  let telegramLogSender: ((msg: string) => Promise<void>) | null = null;
+  let adminChatId: number | undefined = undefined;
+  
+  // Guarda la función original de console.log para usarla en replyAndLog y evitar recursión.
+  const baseConsoleLog = console.log.bind(console);
+  
+  // Bandera para evitar llamadas recursivas al enviar logs a Telegram.
+  let sendingTelegramLog = false;
+  
+  // Override global de console.log para imprimir en la terminal y enviar logs a Telegram en tiempo real (si está en modo dev).
+  (() => {
+    const originalConsoleLog = baseConsoleLog;
+    console.log = (...args: any[]) => {
+      const message = args
+        .map(arg => {
+          if (typeof arg === "object") {
+            try {
+              return JSON.stringify(arg, null, 2);
+            } catch (err) {
+              return String(arg);
+            }
+          }
+          return String(arg);
+        })
+        .join(" ");
+
+      // Imprime el mensaje en la terminal usando la función original.
+      originalConsoleLog(message);
+
+      // Guarda el mensaje en el buffer (opcional).
+      logBuffer.push(message);
+      if (logBuffer.length > 100) {
+        logBuffer.shift();
+      }
+
+      // Envía el log a Telegram si está en modo desarrollador y se evita el ciclo recursivo.
+      if (developmentMode && telegramLogSender && !sendingTelegramLog) {
+        sendingTelegramLog = true;
+        telegramLogSender(message)
+          .catch(err => {
+            originalConsoleLog("Error sending log to Telegram:", err);
+          })
+          .finally(() => {
+            sendingTelegramLog = false;
+          });
+      }
+    };
+  })();
+  
   /**
-   * Run the agent interactively based on user input
+   * Función auxiliar para responder en Telegram y registrar (log) la respuesta en la terminal.
+   * Se usa la función baseConsoleLog para evitar que se active el override de console.log.
+   */
+  async function replyAndLog(ctx: any, message: string, options: object = {}) {
+    baseConsoleLog(
+      "Telegram response to",
+      ctx.from.username || ctx.from.first_name,
+      ":",
+      message
+    );
+    return await ctx.reply(message, options);
+  }
+  
+  /**
+   * Ejecuta el modo Telegram, iniciando el bot y escuchando comandos y mensajes.
+   * El comando /exit detiene solo el bot de Telegram, mientras que /kill termina la aplicación completa.
+   */
+  export async function runTelegramMode(agent: any, config: any) {
+    if (!process.env.TELEGRAM_BOT_TOKEN) {
+      console.error("Error: TELEGRAM_BOT_TOKEN is not defined in the environment variables.");
+      return;
+    }
+  
+    const telegramBot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
+  
+    // Handler para /start: limpia el buffer y asigna telegramLogSender.
+    telegramBot.command("start", async (ctx) => {
+      adminChatId = ctx.chat.id;
+      // Limpiar el buffer para no enviar logs antiguos.
+      logBuffer.length = 0;
+      telegramLogSender = async (msg: string) => {
+        // Se envía cada línea de log con formato preformateado.
+        await replyAndLog(ctx, `<pre>${msg}</pre>`, { parse_mode: "HTML" });
+      };
+      await replyAndLog(
+        ctx,
+        "Welcome! Available commands:\n" +
+          "/devmode - Toggle developer mode\n" +
+          "/exit - Exit Telegram mode (bot will stop, but the application remains running)\n" +
+          "/kill - Terminate the entire application\n" +
+          "Send your message and I'll help you."
+      );
+    });
+  
+    // Handler para /devmode: alterna el modo desarrollador.
+    telegramBot.command("devmode", async (ctx) => {
+      developmentMode = !developmentMode;
+      // Si aún no se ha asignado telegramLogSender, asignarlo usando el chat actual.
+      if (!telegramLogSender) {
+        adminChatId = ctx.chat.id;
+        telegramLogSender = async (msg: string) => {
+          await replyAndLog(ctx, `<pre>${msg}</pre>`, { parse_mode: "HTML" });
+        };
+      }
+      await replyAndLog(ctx, `Developer mode is now ${developmentMode ? "ON" : "OFF"}.`);
+    });
+  
+    // Handler para /exit: detiene solo el bot de Telegram.
+    telegramBot.command("exit", async (ctx) => {
+      await replyAndLog(
+        ctx,
+        "Exiting Telegram mode. Telegram bot will stop, but the application remains running."
+      );
+      telegramBot.stop();
+    });
+  
+    // Nuevo comando /kill: finaliza toda la aplicación.
+    telegramBot.command("kill", async (ctx) => {
+      await replyAndLog(ctx, "Terminating the entire application. Goodbye!");
+      process.exit(0);
+    });
+  
+    // Handler para mensajes de texto.
+    telegramBot.on("message:text", async (ctx) => {
+      // Evitar reprocesar mensajes que sean comandos.
+      if (ctx.message.text.startsWith("/")) {
+        return;
+      }
+      console.log(
+        `Message from ${ctx.from.username || ctx.from.first_name}: ${ctx.message.text}`
+      );
+  
+      try {
+        // Envía el mensaje recibido al agente.
+        const stream = await agent.stream(
+          { messages: [new HumanMessage(ctx.message.text)] },
+          config
+        );
+        let fullResponse = "";
+        for await (const chunk of stream) {
+          if (chunk.agent && chunk.agent.messages && chunk.agent.messages[0].content) {
+            fullResponse += chunk.agent.messages[0].content;
+          } else if (chunk.tools && chunk.tools.messages && chunk.tools.messages[0].content) {
+            fullResponse += chunk.tools.messages[0].content;
+          }
+        }
+        // Envía la respuesta al usuario en Telegram y la imprime en la terminal.
+        await replyAndLog(ctx, fullResponse, { parse_mode: "HTML" });
+      } catch (error) {
+        console.error("Error processing message:", error);
+        await replyAndLog(ctx, "An error occurred while processing your message. Please try again.");
+      }
+    });
+  
+    // Inicia el bot descartando actualizaciones pendientes.
+    telegramBot.start({ drop_pending_updates: true });
+    console.log("Telegram mode started. Waiting for messages...");
+  }
+  
+  /**
+   * Modo interactivo en terminal. Permite:
+   * - Escribir "exit" para salir del modo chat.
+   * - Escribir "kill" para terminar toda la aplicación.
    */
   async function runChatMode(agent: any, config: any) {
-    console.log("Starting chat mode... Type 'exit' to end.");
+    console.log("Starting chat mode... Type 'exit' to end, or 'kill' to terminate the entire application.");
   
     const rl = readline.createInterface({
       input: process.stdin,
@@ -282,16 +447,24 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
       while (true) {
         const userInput = await question("\nPrompt: ");
   
+        // Si se escribe "exit", termina solo el modo chat.
         if (userInput.toLowerCase() === "exit") {
           break;
+        }
+  
+        // Si se escribe "kill", se termina toda la aplicación.
+        if (userInput.toLowerCase() === "kill") {
+          console.log("Terminating the entire application from terminal.");
+          rl.close();
+          process.exit(0);
         }
   
         const stream = await agent.stream({ messages: [new HumanMessage(userInput)] }, config);
   
         for await (const chunk of stream) {
-          if ("agent" in chunk) {
+          if (chunk.agent && chunk.agent.messages && chunk.agent.messages[0].content) {
             console.log(chunk.agent.messages[0].content);
-          } else if ("tools" in chunk) {
+          } else if (chunk.tools && chunk.tools.messages && chunk.tools.messages[0].content) {
             console.log(chunk.tools.messages[0].content);
           }
           console.log("-------------------");
@@ -308,9 +481,9 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
   }
   
   /**
-   * Choose whether to run in autonomous or chat mode
+   * Función chooseMode que muestra las 3 opciones en la terminal.
    */
-  async function chooseMode(): Promise<"chat" | "auto"> {
+  async function chooseMode(): Promise<"chat" | "auto" | "telegram"> {
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -321,8 +494,9 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
   
     while (true) {
       console.log("\nAvailable modes:");
-      console.log("1. chat    - Interactive chat mode");
-      console.log("2. auto    - Autonomous action mode");
+      console.log("1. chat      - Interactive chat mode");
+      console.log("2. auto      - Autonomous action mode");
+      console.log("3. telegram  - Telegram chat interface mode");
   
       const choice = (await question("\nChoose a mode (enter number or name): "))
         .toLowerCase()
@@ -334,23 +508,39 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
       } else if (choice === "2" || choice === "auto") {
         rl.close();
         return "auto";
+      } else if (choice === "3" || choice === "telegram") {
+        rl.close();
+        return "telegram";
       }
       console.log("Invalid choice. Please try again.");
     }
   }
   
   /**
-   * Main entry point
+   * Función principal que inicia el agente y permite seleccionar el modo.
    */
   async function main() {
     try {
       const { agent, config } = await initializeAgent();
+
+      // Inicia el bot de Telegram en segundo plano (si TELEGRAM_BOT_TOKEN está definido)
+      if (process.env.TELEGRAM_BOT_TOKEN) {
+        runTelegramMode(agent, config).catch((e) =>
+          console.error("Error in Telegram mode:", e)
+        );
+      }
+
+      // Muestra el prompt de selección de modo en la terminal
       const mode = await chooseMode();
-  
+
       if (mode === "chat") {
         await runChatMode(agent, config);
-      } else {
+      } else if (mode === "auto") {
         await runAutonomousMode(agent, config);
+      } else if (mode === "telegram") {
+        console.log("Telegram mode is already running in the background. You can interact via Telegram.");
+        // Mantener el proceso en ejecución sin salir
+        await new Promise(() => {});
       }
     } catch (error) {
       if (error instanceof Error) {
@@ -360,10 +550,10 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
     }
   }
   
-  // Start the agent when running directly
+  // Inicia el proceso principal cuando se ejecuta directamente
   if (require.main === module) {
     console.log("Starting Agent...");
-    main().catch(error => {
+    main().catch((error) => {
       console.error("Fatal error:", error);
       process.exit(1);
     });

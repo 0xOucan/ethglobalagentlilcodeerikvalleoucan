@@ -1,85 +1,66 @@
-# Coinbase Chatbot Agent with SecretVault Integration
+# Coinbase Chatbot Agent with Enhanced Telegram Integration
 
-This project is a secure chatbot agent that integrates with Coinbase's AgentKit and Nillion's SecretVault to build and manage databases for merchants.
+This project implements a secure chatbot agent that integrates with Coinbase's AgentKit and features an advanced Telegram integration. The agent allows interaction through an interactive terminal, an autonomous mode, and a Telegram interface.
 
-## Overview
+## New Features and Integrations
 
-The agent is designed to store and manage sensitive merchant data using SecretVault's distributed encryption system. The project includes two main database collections:
+- **Integrated Telegram Bot:**
+  - **/start:** Initializes the Telegram bot, cleans any pending log buffers and displays available commands.
+  - **/devmode:** Toggles Developer Mode, which activates real-time forwarding of terminal logs (including the messages received by Telegram) to the Telegram chat.
+  - **/exit:** Stops only the Telegram bot without terminating the entire application.
+  - **/kill:** Terminates the entire application from Telegram.
 
-- **Merchant Profiles Collection**: Stores information about merchants, including the owner's name, store name, and a brief description.
-- **Product Inventory Collection**: (Planned) Stores product details such as product code, product name, and a short description (e.g., "coca cola 355 ml aluminum").
+- **Real-time Logging:**
+  - The agent employs a custom override of `console.log` which sends every log line to the terminal as usual.
+  - When Developer Mode is activated, every log message is also sent to Telegram in real time.
+  - A helper function `replyAndLog` has been implemented to ensure that Telegram replies are printed in the terminal as well as sent to the user.
+
+- **Seamless Interaction:**
+  - The agent supports multiple modes (chat, autonomous, and Telegram) simultaneously.
+  - Logs and messages are displayed in both interfaces, allowing easier development and testing.
+  - Any command (`/devmode`, `/kill`, etc.) is correctly processed in real time across the terminal and Telegram.
 
 ## Project Structure
 
-- **src/**: Contains the source code.
-  - **config/**: Holds configuration files (e.g., `secretVaultConfig.ts`).
-  - **integration/**: Contains integration modules with SecretVault (e.g., `secretVaultIntegration.ts`).
-  - **api/**: Contains API scripts, such as the schema creation script (`createSchema.ts`).
-- **.env.example**: Template for environment variables.
-- **package.json**: Project dependencies and scripts.
-- **README.md**: This file, which provides a detailed description of the project.
+- **src/**
+  - **chatbot.ts:** Main file integrating the Telegram bot and interactive terminal.
+  - **... other modules ...**
+- **dist/**
+- **README.md:** This file.
+- **package.json:** Project dependencies and scripts.
 
-## Getting Started
+## How to Run
 
-### Prerequisites
+1. Make sure your environment variables (such as `TELEGRAM_BOT_TOKEN`) are properly configured.
+2. Install dependencies using:
+    ```
+    npm install
+    ```
+3. Build the project:
+    ```
+    npm run build
+    ```
+4. Start the application:
+    ```
+    npm start
+    ```
 
-- Node.js v18 or higher
-- npm
+The terminal will display available modes, while the Telegram bot (if configured) will start in the background. You can switch modes as needed.
 
-### Installation
+## Git Commands to Upload Changes to Main Branch
 
-1. **Clone the repository:**
-
-   ```bash
-   git clone https://github.com/yourusername/coinbase-chatbot.git
-   cd coinbase-chatbot
-   ```
-
-2. **Install the dependencies:**
-
-   ```bash
-   npm install
-   ```
-
-### Environment Variables
-
-Before running the project, create a copy of the `.env.example` file and name it `.env`. Then, fill in the required credentials.
-
-#### .env Variables Description
-
-- **CDP_API_KEY_NAME**: Your Coinbase AgentKit API key name.
-- **CDP_API_KEY_PRIVATE_KEY**: Your Coinbase AgentKit API private key.
-- **OPENAI_API_KEY**: Your OpenAI API key.
-- **NETWORK_ID**: The network identifier.
-- **SV_ORG_DID**: Your organization DID provided by SecretVault.
-- **SV_PRIVATE_KEY**: Your SecretVault private key.
-- **SV_PUBLIC_KEY**: Your SecretVault public key.
-- **SV_NODE1_URL**, **SV_NODE2_URL**, **SV_NODE3_URL**: URLs of the SecretVault cluster nodes.
-- **SV_NODE1_JWT**, **SV_NODE2_JWT**, **SV_NODE3_JWT**: JWT tokens for authenticating each respective node.
-- **SCHEMA_ID_MERCHANT**: The unique UUID for the Merchant Profiles collection.
-- **SCHEMA_ID_PRODUCT**: The unique UUID for the Product Inventory collection.
-
-For obtaining these credentials, please refer to the official SecretVault documentation and your organization's registration details.
-
-### Building and Running the Project
-
-To build the project, run:
-
-```bash
-npm run build
-```
-
-To start the project, run:
-
-```bash
-npm start
-```
-
-## Additional Information
-
-- The project integrates with SecretVault using the `nillion-sv-wrappers` package, which simplifies encryption, decryption, and API operations.
-- Sensitive data is managed exclusively through environment variables. The `.gitignore` file is configured to exclude sensitive files (such as `.env`) and build artifacts (`node_modules/`, `dist/`).
-- The modular architecture (with dedicated directories like `config` and `integration`) ensures that integration logic is cleanly separated and maintainable.
+1. Stage all changes:
+    ```
+    git add .
+    ```
+2. Commit your changes with a message:
+    ```
+    git commit -m "Update README with new Telegram integrations and enhanced logging features"
+    ```
+3. Push the changes to the main branch:
+    ```
+    git push origin main
+    ```
 
 ## License
 
@@ -87,4 +68,4 @@ MIT License
 
 ---
 
-This project leverages distributed encryption via SecretVault to securely manage sensitive merchant and product information. Contributions and suggestions are welcome.
+This project now facilitates full monitoring during development, allowing you to observe interactions and logs simultaneously in the terminal and on Telegram.
