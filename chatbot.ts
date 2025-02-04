@@ -1,3 +1,14 @@
+/**
+ * File: chatbot.ts
+ *
+ * This agent is designed to:
+ * - Register merchant profiles in a secret vault using Nillion.
+ * - Register products in a local but encrypted database.
+ * - Manage an inventory/stock system that aligns with sales files.
+ *
+ * The agent supports multiple modes of interaction: Chat, Autonomous, and Telegram.
+ */
+
 import {
     AgentKit,
     CdpWalletProvider,
@@ -42,7 +53,7 @@ function validateEnvironment(): void {
   
     // Exit if any required variables are missing
     if (missingVars.length > 0) {
-      console.error("Error: Required environment variables are not set");
+      console.error("Error: Required environment variables are not set.");
       missingVars.forEach(varName => {
         console.error(`${varName}=your_${varName.toLowerCase()}_here`);
       });
@@ -68,11 +79,11 @@ function validateEnvironment(): void {
   // Acción para almacenar el perfil del comerciante
   const customStoreProfileAction = customActionProvider({
     name: "store_profile",
-    description: "Almacenar perfil de comerciante: nombre del propietario, nombre de la tienda y descripción breve.",
+    description: "Store merchant profile: owner's name, store name, and a brief description.",
     schema: z.object({
-      owner: z.string().min(1).describe("Nombre del propietario"),
-      storeName: z.string().min(1).describe("Nombre de la tienda"),
-      description: z.string().min(1).describe("Descripción breve de la tienda"),
+      owner: z.string().min(1).describe("Owner's name"),
+      storeName: z.string().min(1).describe("Store name"),
+      description: z.string().min(1).describe("Brief store description"),
     }),
     invoke: async (_walletProvider, args) => {
       // Generamos un objeto con el perfil del comerciante
@@ -89,27 +100,27 @@ function validateEnvironment(): void {
       // await collection.init();
       // const result = await collection.writeToNodes([merchantProfile]);
   
-      console.log("Registrando perfil del comerciante:", merchantProfile);
-      return `Perfil registrado: ${merchantProfile.id}`;
+      console.log("Registering merchant profile:", merchantProfile);
+      return `Profile registered: ${merchantProfile.id}`;
     },
   });
   
   // Acción para registrar un producto en el inventario
   const customRegisterProductAction = customActionProvider({
     name: "register_product",
-    description: "Registrar producto en inventario: código, nombre y descripción (máximo 4 palabras).",
+    description: "Register product in inventory: product code, product name, and a brief description (max 4 words).",
     schema: z.object({
-      productCode: z.string().min(1).describe("Código del producto"),
-      productName: z.string().min(1).describe("Nombre del producto"),
-      productDescription: z.string().min(1).describe("Descripción breve (máx 4 palabras)"),
+      productCode: z.string().min(1).describe("Product code"),
+      productName: z.string().min(1).describe("Product name"),
+      productDescription: z.string().min(1).describe("Brief description (max 4 words)"),
     }),
     invoke: async (_walletProvider, args) => {
       // Aseguramos que la descripción tenga máximo 4 palabras
-      let palabras = args.productDescription.split(/\s+/);
-      if (palabras.length > 4) {
-        palabras = palabras.slice(0, 4);
+      let words = args.productDescription.split(/\s+/);
+      if (words.length > 4) {
+        words = words.slice(0, 4);
       }
-      const description = palabras.join(" ");
+      const description = words.join(" ");
   
       const productEntry = {
         id: uuidv4(),
@@ -119,8 +130,8 @@ function validateEnvironment(): void {
       };
   
       // AQUÍ: Integrar con SecretVault para almacenar productEntry en la colección de inventario.
-      console.log("Registrando producto:", productEntry);
-      return `Producto registrado: ${productEntry.id}`;
+      console.log("Registering product:", productEntry);
+      return `Product registered: ${productEntry.id}`;
     },
   });
   
@@ -216,9 +227,9 @@ async function initializeAgent() {
         tools,
         checkpointSaver: memory,
         messageModifier: `
-          Eres un agente útil que puede interactuar onchain usando el Coinbase Developer Platform AgentKit.
-          Tienes acceso a herramientas para interactuar onchain. Al ejecutar una acción, verifica si necesitas almacenar
-          el perfil del comerciante o registrar un producto en inventario, según la solicitud del usuario.
+          You are a helpful agent that can interact on-chain using the Coinbase Developer Platform AgentKit.
+          You have access to tools for on-chain interaction. When executing an action, verify if you need to store
+          a merchant profile or register a product in inventory based on the user's request.
         `,
       });
   
@@ -241,8 +252,8 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
     while (true) {
       try {
         const thought =
-          "Sé creativo y haz algo interesante onchain. " +
-          "Elige una acción que resalte tus habilidades y ejecútala.";
+          "Be creative and do something interesting on-chain. " +
+          "Choose an action that showcases your skills and execute it.";
   
         const stream = await agent.stream({ messages: [new HumanMessage(thought)] }, config);
   
@@ -356,7 +367,7 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
         ctx,
         "Welcome! Available commands:\n" +
           "/devmode - Toggle developer mode\n" +
-          "/exit - Exit Telegram mode (bot will stop, but the application remains running)\n" +
+          "/exit - Exit Telegram mode (bot stops, but application remains running)\n" +
           "/kill - Terminate the entire application\n" +
           "Send your message and I'll help you."
       );
@@ -441,22 +452,25 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
     });
   
     const question = (prompt: string): Promise<string> =>
-      new Promise(resolve => rl.question(prompt, resolve));
+      new Promise((resolve) => rl.question(prompt, resolve));
   
     try {
       while (true) {
         const userInput = await question("\nPrompt: ");
   
-        // Si se escribe "exit", termina solo el modo chat.
-        if (userInput.toLowerCase() === "exit") {
-          break;
-        }
+        // If the input is "exit", end the chat mode.
+        if (userInput.toLowerCase() === "exit") break;
   
-        // Si se escribe "kill", se termina toda la aplicación.
+        // If the input is "kill", terminate the entire application.
         if (userInput.toLowerCase() === "kill") {
           console.log("Terminating the entire application from terminal.");
           rl.close();
           process.exit(0);
+        }
+  
+        // Increase recursion limit for development mode
+        if (developmentMode) {
+          agent.recursionLimit = 50; // Set a higher limit for testing
         }
   
         const stream = await agent.stream({ messages: [new HumanMessage(userInput)] }, config);

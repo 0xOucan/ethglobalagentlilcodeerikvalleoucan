@@ -3,7 +3,7 @@
 package-lock.json
 wallet_data.txt
 node_modules/
-dist/  # Ignorar el directorio de salida de compilación
+/dist/  # Ignorar el directorio de salida de compilación
 *.log  # Ignorar archivos de log
 *.tmp  # Ignorar archivos temporales
 .vscode/  # Ignorar la carpeta de configuración de Visual Studio Code
