@@ -33,6 +33,9 @@ import {
   import { v4 as uuidv4 } from "uuid";
   import { Bot as TelegramBot } from "grammy";
   
+  // Import the SecretVault integration
+  import { writeMerchantProfile } from "../integrations/nillionSecretVault/secretVaultIntegration";
+  
   dotenv.config();
   /**
  * Validates that required environment variables are set

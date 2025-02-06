@@ -1,29 +1,41 @@
 {
-  "name": "coinbase-chatbot",
+  "name": "eth-agent-arturvargasoucanerikvalle",
   "version": "1.0.0",
-  "description": "Coinbase CDP AgentKit Chatbot",
+  "description": "Eth Agent with Nillion Integration",
   "main": "dist/chatbot.js",
+  "type": "module",
+  "exports": {
+    ".": "./dist/chatbot.js"
+  },
   "scripts": {
     "build": "tsc",
-    "start": "npm run build && node dist/chatbot.js",
-    "dev": "ts-node chatbot.ts"
+    "start": "npm run build && node --experimental-specifier-resolution=node dist/chatbot.js",
+    "dev": "ts-node --esm src/chatbot.ts",
+    "clean": "rm -rf node_modules package-lock.json dist",
+    "clean:full": "npm run clean && rm -rf ./**/node_modules"
   },
   "dependencies": {
-    "@coinbase/agentkit": "latest",
-    "@coinbase/agentkit-langchain": "^0.1.0",
+    "@coinbase/agentkit": "0.1.1",
+    "@coinbase/agentkit-langchain": "0.1.0",
     "@langchain/core": "latest",
-    "@langchain/langgraph": "latest",
     "@langchain/openai": "latest",
+    "@langchain/langgraph": "latest",
     "dotenv": "latest",
-    "grammy": "^1.34.1",
-    "nillion-sv-wrappers": "^1.0.4",
-    "node-fetch": "^3.3.2",
-    "typescript": "^5.0.0",
+    "grammy": "latest",
+    "langchain": "latest",
+    "nillion-sv-wrappers": "latest",
     "uuid": "latest",
+    "viem": "latest",
     "zod": "latest"
+    
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "ts-node": "^10.9.1"
+    "@types/node": "20.11.16",
+    "@types/uuid": "9.0.8",
+    "typescript": "5.3.3",
+    "ts-node": "10.9.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
