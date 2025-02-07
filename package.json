@@ -1,8 +1,8 @@
 {
-  "name": "@coinbase/cdp-langchain-chatbot-example",
-  "description": "CDP Agentkit Node.js SDK Chatbot Example",
+  "name": "eth-agent-arturvargasoucanerikvalle",
+  "description": "Eth Agent for store owners in latam",
   "version": "1.0.0",
-  "author": "Coinbase Inc.",
+  "author": "@0xoucan @ErikValle @ArturVargas",
   "license": "Apache-2.0",
   "scripts": {
     "build": "tsc",
@@ -21,7 +21,8 @@
     "@langchain/openai": "^0.4.2",
     "dotenv": "^16.4.5",
     "viem": "^2.22.22",
-    "zod": "^3.22.4"
+    "zod": "^3.22.4",
+    "grammy": "^1.8.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.16",

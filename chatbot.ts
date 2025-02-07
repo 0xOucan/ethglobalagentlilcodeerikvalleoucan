@@ -17,6 +17,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as readline from "readline";
+import { createTelegramBot } from "./src/telegram/telegramIntegrations";
 
 dotenv.config();
 /**
@@ -180,8 +181,6 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
  * Run the agent interactively based on user input
  */
 async function runChatMode(agent: any, config: any) {
-  console.log("Starting chat mode... Type 'exit' to end.");
-
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -192,21 +191,28 @@ async function runChatMode(agent: any, config: any) {
 
   try {
     while (true) {
-      const userInput = await question("\nPrompt: ");
+      const userInput = await question("Prompt: ");
 
-      if (userInput.toLowerCase() === "exit") {
-        break;
-      }
+      if (!userInput.trim()) continue;
 
-      const stream = await agent.stream({ messages: [new HumanMessage(userInput)] }, config);
-
-      for await (const chunk of stream) {
-        if ("agent" in chunk) {
-          console.log(chunk.agent.messages[0].content);
-        } else if ("tools" in chunk) {
-          console.log(chunk.tools.messages[0].content);
-        }
-        console.log("-------------------");
+      switch (userInput.toLowerCase()) {
+        case 'exit':
+          console.log('Exiting application...');
+          rl.close();
+          process.exit(0); // End the application process
+        case 'kill':
+          console.log('Terminating application...');
+          rl.close();
+          process.exit(0);
+        default:
+          const stream = await agent.stream({ messages: [new HumanMessage(userInput)] }, config);
+          for await (const chunk of stream) {
+            if ("agent" in chunk) {
+              console.log(chunk.agent.messages[0].content);
+            } else if ("tools" in chunk) {
+              console.log(chunk.tools.messages[0].content);
+            }
+          }
       }
     }
   } catch (error) {
@@ -220,62 +226,80 @@ async function runChatMode(agent: any, config: any) {
 }
 
 /**
- * Choose whether to run in autonomous or chat mode
- */
-async function chooseMode(): Promise<"chat" | "auto"> {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  const question = (prompt: string): Promise<string> =>
-    new Promise(resolve => rl.question(prompt, resolve));
-
-  while (true) {
-    console.log("\nAvailable modes:");
-    console.log("1. chat    - Interactive chat mode");
-    console.log("2. auto    - Autonomous action mode");
-
-    const choice = (await question("\nChoose a mode (enter number or name): "))
-      .toLowerCase()
-      .trim();
-
-    if (choice === "1" || choice === "chat") {
-      rl.close();
-      return "chat";
-    } else if (choice === "2" || choice === "auto") {
-      rl.close();
-      return "auto";
-    }
-    console.log("Invalid choice. Please try again.");
-  }
-}
-
-/**
  * Main entry point
  */
 async function main() {
   try {
     const { agent, config } = await initializeAgent();
-    const mode = await chooseMode();
+    let telegramBot = null;
 
-    if (mode === "chat") {
-      await runChatMode(agent, config);
-    } else {
-      await runAutonomousMode(agent, config);
+    while (true) {  // Main application loop
+      console.log("\nAvailable modes:");
+      console.log("1. chat      - Terminal chat mode");
+      console.log("2. telegram  - Telegram interface mode");
+      console.log("3. auto      - Autonomous mode (not implemented yet)");
+      
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      const question = (prompt: string): Promise<string> =>
+        new Promise(resolve => rl.question(prompt, resolve));
+
+      const choice = await question("\nChoose a mode (1/2/3): ");
+      
+      switch(choice) {
+        case "1":
+          console.log("\nTerminal chat mode started. Type 'exit' to end or 'kill' to terminate application.");
+          await runChatMode(agent, config);
+          break;
+        
+        case "2":
+          if (!process.env.TELEGRAM_BOT_TOKEN) {
+            console.error("Error: TELEGRAM_BOT_TOKEN is not set in environment variables");
+            continue;
+          }
+          console.log("\nStarting Telegram mode. Use /start in Telegram to begin.");
+          try {
+            telegramBot = await createTelegramBot(agent, config);
+            // Wait for Telegram bot to exit
+            await telegramBot.waitForExit();
+            
+            // After Telegram exit, ask user what to do next
+            const continueChoice = await question("\nDo you want to continue in terminal mode? (yes/no): ");
+            if (continueChoice.toLowerCase() === 'yes') {
+              console.log("\nSwitching to terminal chat mode...");
+              continue;  // Goes back to mode selection
+            } else {
+              console.log('Terminating application...');
+              process.exit(0);
+            }
+          } catch (error) {
+            console.error('Failed to start Telegram mode:', error);
+          }
+          break;
+        
+        case "3":
+          console.log("Autonomous mode is not implemented yet.");
+          continue;
+        
+        default:
+          console.log("Invalid choice. Please try again.");
+          continue;
+      }
     }
+
   } catch (error) {
-    if (error instanceof Error) {
-      console.error("Error:", error.message);
-    }
+    console.error('Failed to start application:', error);
     process.exit(1);
   }
 }
 
-// Start the agent when running directly
+// Start the application
 if (require.main === module) {
   console.log("Starting Agent...");
-  main().catch(error => {
+  main().catch((error) => {
     console.error("Fatal error:", error);
     process.exit(1);
   });
