@@ -4,8 +4,8 @@ package-lock.json
 yarn.lock
 
 # Build outputs
-/dist/
-/build/
+dist/
+build/
 *.js.map
 
 # Environment and secrets

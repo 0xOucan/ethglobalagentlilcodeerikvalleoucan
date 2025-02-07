@@ -5,6 +5,7 @@
   "author": "@0xoucan @ErikValle @ArturVargas",
   "license": "Apache-2.0",
   "scripts": {
+    "postinstall": "npm run build",
     "build": "tsc",
     "start": "NODE_OPTIONS='--no-warnings' ts-node ./chatbot.ts",
     "dev": "nodemon ./chatbot.ts",
@@ -22,13 +23,15 @@
     "dotenv": "^16.4.5",
     "viem": "^2.22.22",
     "zod": "^3.22.4",
-    "grammy": "^1.8.0"
+    "grammy": "latest",
+    "node-telegram-bot-api": "^0.64.0",
+    "@types/node-telegram-bot-api": "^0.64.3",
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2"
   },
   "devDependencies": {
     "@types/node": "^20.11.16",
     "@types/uuid": "^9.0.8",
-    "nodemon": "^3.1.0",
-    "typescript": "^5.3.3",
-    "ts-node": "^10.9.2"
+    "nodemon": "^3.1.0"
   }
 }

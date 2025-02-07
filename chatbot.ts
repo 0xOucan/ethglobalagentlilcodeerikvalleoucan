@@ -10,7 +10,7 @@ import {
 } from "@coinbase/agentkit";
 
 import { getLangChainTools } from "@coinbase/agentkit-langchain";
-import { HumanMessage } from "@langchain/core/messages";
+import { HumanMessage, AIMessage } from "@langchain/core/messages";
 import { MemorySaver } from "@langchain/langgraph";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
@@ -18,6 +18,7 @@ import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as readline from "readline";
 import { createTelegramBot } from "./src/telegram/telegramIntegrations";
+import TelegramBot from 'node-telegram-bot-api';
 
 dotenv.config();
 /**
@@ -57,6 +58,7 @@ validateEnvironment();
 
 // Configure a file to persist the agent's CDP MPC Wallet Data
 const WALLET_DATA_FILE = "wallet_data.txt";
+
 /**
  * Initialize the agent with CDP Agentkit
  *
@@ -178,123 +180,320 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
 }
 
 /**
- * Run the agent interactively based on user input
- */
-async function runChatMode(agent: any, config: any) {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  const question = (prompt: string): Promise<string> =>
-    new Promise(resolve => rl.question(prompt, resolve));
-
-  try {
-    while (true) {
-      const userInput = await question("Prompt: ");
-
-      if (!userInput.trim()) continue;
-
-      switch (userInput.toLowerCase()) {
-        case 'exit':
-          console.log('Exiting application...');
-          rl.close();
-          process.exit(0); // End the application process
-        case 'kill':
-          console.log('Terminating application...');
-          rl.close();
-          process.exit(0);
-        default:
-          const stream = await agent.stream({ messages: [new HumanMessage(userInput)] }, config);
-          for await (const chunk of stream) {
-            if ("agent" in chunk) {
-              console.log(chunk.agent.messages[0].content);
-            } else if ("tools" in chunk) {
-              console.log(chunk.tools.messages[0].content);
-            }
-          }
-      }
-    }
-  } catch (error) {
-    if (error instanceof Error) {
-      console.error("Error:", error.message);
-    }
-    process.exit(1);
-  } finally {
-    rl.close();
-  }
-}
-
-/**
  * Main entry point
  */
 async function main() {
+  let isRunning = true;
+  
   try {
     const { agent, config } = await initializeAgent();
-    let telegramBot = null;
-
-    while (true) {  // Main application loop
+    
+    while (isRunning) {
+      console.clear();
       console.log("\nAvailable modes:");
       console.log("1. chat      - Terminal chat mode");
       console.log("2. telegram  - Telegram interface mode");
       console.log("3. auto      - Autonomous mode (not implemented yet)");
       
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
+      const choice = await new Promise<string>((resolve) => {
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+        
+        const handleChoice = (answer: string) => {
+          rl.removeListener('line', handleChoice);
+          rl.close();
+          resolve(answer);
+        };
+
+        rl.question("\nChoose a mode (1/2/3): ", handleChoice);
       });
-
-      const question = (prompt: string): Promise<string> =>
-        new Promise(resolve => rl.question(prompt, resolve));
-
-      const choice = await question("\nChoose a mode (1/2/3): ");
       
       switch(choice) {
         case "1":
-          console.log("\nTerminal chat mode started. Type 'exit' to end or 'kill' to terminate application.");
           await runChatMode(agent, config);
           break;
         
         case "2":
           if (!process.env.TELEGRAM_BOT_TOKEN) {
             console.error("Error: TELEGRAM_BOT_TOKEN is not set in environment variables");
+            await new Promise(resolve => setTimeout(resolve, 2000));
             continue;
           }
-          console.log("\nStarting Telegram mode. Use /start in Telegram to begin.");
           try {
-            telegramBot = await createTelegramBot(agent, config);
-            // Wait for Telegram bot to exit
-            await telegramBot.waitForExit();
+            console.log("\nStarting Telegram mode...");
+            telegramBot = new TelegramBotImplementation(process.env.TELEGRAM_BOT_TOKEN, agent, config);
             
-            // After Telegram exit, ask user what to do next
-            const continueChoice = await question("\nDo you want to continue in terminal mode? (yes/no): ");
-            if (continueChoice.toLowerCase() === 'yes') {
-              console.log("\nSwitching to terminal chat mode...");
-              continue;  // Goes back to mode selection
-            } else {
-              console.log('Terminating application...');
-              process.exit(0);
-            }
+            // Wait for bot to exit
+            await telegramBot.waitForExit();
+            console.log("\nReturning to menu...");
           } catch (error) {
             console.error('Failed to start Telegram mode:', error);
+            await new Promise(resolve => setTimeout(resolve, 2000));
           }
           break;
         
         case "3":
           console.log("Autonomous mode is not implemented yet.");
+          await new Promise(resolve => setTimeout(resolve, 2000));
           continue;
         
         default:
           console.log("Invalid choice. Please try again.");
+          await new Promise(resolve => setTimeout(resolve, 2000));
           continue;
       }
     }
-
   } catch (error) {
     console.error('Failed to start application:', error);
     process.exit(1);
   }
 }
+
+/**
+ * Run the agent interactively based on user input
+ */
+async function runChatMode(agent: any, config: any) {
+  let rl: readline.Interface | null = null;
+  
+  try {
+    // Create readline interface
+    rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      prompt: '> '
+    });
+
+    // Store the message handler function
+    const handleMessage = async (input: string) => {
+      const trimmedInput = input.trim().toLowerCase();
+      
+      if (!trimmedInput) {
+        rl?.prompt();
+        return;
+      }
+
+      // Handle commands first
+      switch(trimmedInput) {
+        case 'exit':
+          console.log('Returning to menu...');
+          if (rl) {
+            rl.removeListener('line', handleMessage);
+            rl.close();
+          }
+          return;
+        
+        case 'kill':
+          console.log('Terminating application...');
+          process.exit(0);
+          return;
+          
+        default:
+          // Only process with agent if it's not a command
+          try {
+            const stream = await agent.stream({ messages: [new HumanMessage(input)] }, config);
+            let fullResponse = '';
+            for await (const chunk of stream) {
+              if ("agent" in chunk) {
+                fullResponse = chunk.agent.messages[0].content;
+              } else if ("tools" in chunk) {
+                console.log(chunk.tools.messages[0].content);
+              }
+            }
+            // Print the complete response at once
+            if (fullResponse) {
+              console.log(fullResponse);
+            }
+          } catch (error) {
+            console.error("Error processing message:", error);
+          }
+      }
+      
+      rl?.prompt();
+    };
+
+    // Print welcome message once
+    console.clear();
+    console.log("\nTerminal chat mode started. Type 'exit' to return to menu, 'kill' to terminate application.");
+    rl.prompt();
+
+    // Add single listener
+    rl.removeAllListeners('line');
+    rl.on('line', handleMessage);
+
+    // Handle cleanup
+    await new Promise<void>((resolve) => {
+      rl?.once('close', () => {
+        rl?.removeListener('line', handleMessage);
+        resolve();
+      });
+    });
+
+  } catch (error) {
+    console.error("Error:", error);
+    if (rl) {
+      rl.close();
+    }
+    process.exit(1);
+  }
+}
+
+interface TelegramIntegration {
+  bot: TelegramBot;
+  sendMessage(text: string, chatId: number): Promise<void>;
+  waitForExit(): Promise<void>;
+}
+
+class TelegramBotImplementation implements TelegramIntegration {
+  bot: TelegramBot;
+  private exitPromise: Promise<void>;
+  private exitResolve: (() => void) | null = null;
+  private agent: any;
+  private agentConfig: any;
+  private messageCache: Set<string> = new Set();
+  private startTime: number;
+  private agentContext: any = {};
+
+  constructor(token: string, agent: any, agentConfig: any) {
+    this.bot = new TelegramBot(token, { polling: true });
+    this.agent = agent;
+    this.agentConfig = agentConfig;
+    this.startTime = Date.now();
+    this.exitPromise = new Promise((resolve) => {
+      this.exitResolve = resolve;
+    });
+
+    this.bot.on('message', async (msg) => {
+      const chatId = msg.chat.id;
+      if (msg.date * 1000 < this.startTime) {
+        return;
+      }
+      if (msg.text) {
+        // Log incoming Telegram message to terminal
+        console.log(`\n[TELEGRAM INPUT] ${msg.from?.username || 'User'}: ${msg.text}`);
+        await this.handleMessage(msg.text, chatId);
+      }
+    });
+
+    console.log('\nTelegram bot is ready! Send /start in your Telegram chat.');
+    console.log('Use /exit to return to menu or /kill to terminate the app.\n');
+  }
+
+  async sendMessage(text: string, chatId: number): Promise<void> {
+    if (!text.trim()) return;
+    const key = text;
+    if (!this.messageCache.has(key)) {
+      this.messageCache.add(key);
+      
+      // Log outgoing Telegram message to terminal
+      console.log(`[TELEGRAM OUTPUT]: ${text}\n`);
+      
+      await this.bot.sendMessage(chatId, text);
+      setTimeout(() => this.messageCache.delete(key), 100);
+    }
+  }
+
+  private async handleMessage(text: string, chatId: number) {
+    try {
+      if (!text.trim()) return;
+
+      switch (text) {
+        case '/start':
+          await this.sendMessage('Welcome! I am your CDP AgentKit bot.\n\n' +
+            'Available commands:\n' +
+            '/exit - Return to terminal mode\n' +
+            '/kill - Terminate the application\n' +
+            'Send your message and I\'ll help you.',
+            chatId
+          );
+          break;
+
+        case '/exit':
+          await this.sendMessage('Returning to menu...', chatId);
+          await this.stop();
+          break;
+
+        case '/kill':
+          await this.sendMessage('Terminating application. Goodbye!', chatId);
+          process.exit(0);
+          break;
+
+        default:
+          try {
+            // Create a new context for each chat if it doesn't exist
+            if (!this.agentContext[chatId]) {
+              this.agentContext[chatId] = {
+                messages: []
+              };
+            }
+
+            // Add the new message to the context
+            this.agentContext[chatId].messages.push(new HumanMessage(text));
+
+            const stream = await this.agent.stream(
+              { messages: this.agentContext[chatId].messages },
+              {
+                ...this.agentConfig,
+                context: this.agentContext[chatId]
+              }
+            );
+            
+            let toolResponses = [];
+            let agentResponse = '';
+            
+            for await (const chunk of stream) {
+              if ("agent" in chunk && chunk.agent?.messages?.[0]?.content) {
+                agentResponse = chunk.agent.messages[0].content;
+              }
+              if ("tools" in chunk && chunk.tools?.messages?.[0]?.content) {
+                const toolMsg = chunk.tools.messages[0].content;
+                if (toolMsg.trim()) {
+                  toolResponses.push(toolMsg);
+                }
+              }
+            }
+
+            // Send tool responses first
+            for (const toolMsg of toolResponses) {
+              await this.sendMessage(toolMsg, chatId);
+            }
+
+            // Send agent response last
+            if (agentResponse.trim()) {
+              await this.sendMessage(agentResponse, chatId);
+              // Add the agent's response to the context
+              this.agentContext[chatId].messages.push(new AIMessage(agentResponse));
+            }
+
+          } catch (error) {
+            console.error('Stream error:', error);
+            await this.sendMessage('An error occurred while processing your message.', chatId);
+          }
+      }
+    } catch (error) {
+      console.error('Handler error:', error);
+      await this.sendMessage('An error occurred while processing your message.', chatId);
+    }
+  }
+
+  async stop(): Promise<void> {
+    try {
+      await this.bot.stopPolling();
+      if (this.exitResolve) {
+        this.exitResolve();
+      }
+    } catch (error) {
+      console.error('Error stopping bot:', error);
+    }
+  }
+
+  async waitForExit(): Promise<void> {
+    return this.exitPromise;
+  }
+}
+
+let telegramBot: TelegramIntegration | null = null;
 
 // Start the application
 if (require.main === module) {

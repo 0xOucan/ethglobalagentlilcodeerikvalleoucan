@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "es6",
     "module": "commonjs",
     "outDir": "./dist",
     "rootDir": "./",
@@ -9,6 +9,8 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["*.ts"],
+  "include": [
+    "src/**/*"
+  ],
   "exclude": ["node_modules"]
 } 

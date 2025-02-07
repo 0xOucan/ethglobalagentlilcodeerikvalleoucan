@@ -2,6 +2,7 @@ import { Bot, InlineKeyboard } from "grammy";
 import { HumanMessage } from "@langchain/core/messages";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { Context } from "grammy";
+import { telegramConfig } from "./telegramConfig";
 
 interface TelegramConfig {
   botToken: string;
@@ -198,14 +199,7 @@ export const createTelegramBot = async (
   agent: ReturnType<typeof createReactAgent>,
   agentConfig: any
 ) => {
-  if (!process.env.TELEGRAM_BOT_TOKEN) {
-    throw new Error('TELEGRAM_BOT_TOKEN is not set in environment variables');
-  }
-
-  const config: TelegramConfig = {
-    botToken: process.env.TELEGRAM_BOT_TOKEN,
-    developmentMode: process.env.NODE_ENV === 'development'
-  };
+  const config: TelegramConfig = telegramConfig;
 
   const integration = new TelegramIntegration(config, agent, agentConfig);
   await integration.start();
