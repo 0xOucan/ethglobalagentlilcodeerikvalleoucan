@@ -1,0 +1,12 @@
+export const AAVE_POOL_ADDRESS = "0xbE781D7Bdf469f3d94a62Cdcc407aCe106AEcA74";
+export const AAVE_L2_ENCODER = "0x0ffE481FBF0AE2282A5E1f701fab266aF487A97D";
+export const USDC_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+export const WETH_ADDRESS = "0x4200000000000000000000000000000000000006";
+
+export const INTEREST_RATE_MODES = {
+    VARIABLE: 2,
+    STABLE: 1,
+} as const;
+
+export const AAVE_POOL_ABI = [...] as const;
+export const L2_ENCODER_ABI = [...] as const;

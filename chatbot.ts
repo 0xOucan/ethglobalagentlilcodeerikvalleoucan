@@ -19,6 +19,7 @@ import * as fs from "fs";
 import * as readline from "readline";
 import { createTelegramBot } from "./src/telegram/telegramIntegrations";
 import TelegramBot from 'node-telegram-bot-api';
+import { aaveProtocolActionProvider } from "@coinbase/agentkit";
 
 dotenv.config();
 /**
@@ -109,6 +110,7 @@ async function initializeAgent() {
           apiKeyName: process.env.CDP_API_KEY_NAME,
           apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
         }),
+        aaveProtocolActionProvider(),
       ],
     });
 
