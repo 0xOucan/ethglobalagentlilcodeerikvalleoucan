@@ -1,22 +1,68 @@
-# Ignorar archivos y carpetas recomendados
-.env
-package-lock.json
-wallet_data.txt
+# Dependencies
 node_modules/
-/dist/  # Ignorar el directorio de salida de compilación
-*.log  # Ignorar archivos de log
-*.tmp  # Ignorar archivos temporales
-.vscode/  # Ignorar la carpeta de configuración de Visual Studio Code
+package-lock.json
+yarn.lock
 
-# Ignorar archivos de configuración de IDEs
-.idea/  # Ignorar la carpeta de configuración de IntelliJ IDEA
-*.sublime-workspace  # Ignorar archivos de trabajo de Sublime Text
-*.sublime-project  # Ignorar proyectos de Sublime Text
+# Build outputs
+/dist/
+/build/
+*.js.map
 
-# Ignorar archivos de sistema
-.DS_Store  # Ignorar archivos de sistema de macOS
-Thumbs.db  # Ignorar archivos de miniaturas de Windows
+# Environment and secrets
+.env
+.env.*
+wallet_data.txt
+secrets/
+credentials/
 
-# Ignorar archivos de dependencias
-npm-debug.log  # Ignorar archivos de log de npm
-yarn-error.log  # Ignorar archivos de log de yarn
+# Nillion secure data
+nillion-vault/
+**/vault-data/
+
+# Logs and debugging
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+debug.log
+telegram-debug.log
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*.sublime-workspace
+*.sublime-project
+
+# Testing
+/coverage/
+.nyc_output/
+test-results/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+temp/
+
+# Database files
+*.db
+*.sqlite
+nildb/
+
+# Deployment
+.vercel
+.netlify
+.serverless/
+
+# Documentation
+/docs/_site/
+/docs/.jekyll-cache/
+
+# Optional: Español documentation source files
+/español/**/*.md
+!/español/README.md
