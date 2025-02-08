@@ -14,7 +14,8 @@
     "lint": "eslint -c .eslintrc.json *.ts",
     "lint:fix": "eslint -c .eslintrc.json *.ts --fix",
     "format": "prettier --write \"**/*.{ts,js,cjs,json,md}\"",
-    "format:check": "prettier -c .prettierrc --check \"**/*.{ts,js,cjs,json,md}\""
+    "format:check": "prettier -c .prettierrc --check \"**/*.{ts,js,cjs,json,md}\"",
+    "clean": "rm -rf node_modules && rm -rf dist && npm cache clean --force"
   },
   "dependencies": {
     "@coinbase/agentkit": "^0.1.2",
@@ -22,13 +23,17 @@
     "@langchain/core": "^0.3.38",
     "@langchain/langgraph": "^0.2.45",
     "@langchain/openai": "^0.4.2",
+    "@nillion/nilql": "^0.0.0-alpha.10",
     "@types/node-telegram-bot-api": "^0.64.3",
+    "did-jwt": "^8.0.6",
     "dotenv": "^16.4.5",
     "grammy": "latest",
+    "nillion-sv-wrappers": "^1.0.9",
     "node-telegram-bot-api": "^0.64.0",
     "reflect-metadata": "^0.2.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
+    "uuid": "^11.0.5",
     "viem": "^2.22.22",
     "zod": "^3.22.4"
   },
