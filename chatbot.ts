@@ -9,15 +9,15 @@ import {
   pythActionProvider,
 } from "@coinbase/agentkit";
 
+import { aaveProtocolActionProvider } from "./src/action-providers/Aave";
 import { getLangChainTools } from "@coinbase/agentkit-langchain";
-import { HumanMessage, AIMessage } from "@langchain/core/messages";
+import { HumanMessage } from "@langchain/core/messages";
 import { MemorySaver } from "@langchain/langgraph";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
 import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as readline from "readline";
-import { createTelegramBot } from "./src/telegram/telegramIntegrations";
 import TelegramBot from 'node-telegram-bot-api';
 
 dotenv.config();
@@ -31,7 +31,7 @@ function validateEnvironment(): void {
   const missingVars: string[] = [];
 
   // Check required variables
-  const requiredVars = ["OPENAI_API_KEY", "CDP_API_KEY_NAME", "CDP_API_KEY_PRIVATE_KEY"];
+  const requiredVars = ["OPENAI_API_KEY", "CDP_API_KEY_NAME", "CDP_API_KEY_PRIVATE_KEY", "TELEGRAM_BOT_TOKEN"];
   requiredVars.forEach(varName => {
     if (!process.env[varName]) {
       missingVars.push(varName);
@@ -59,6 +59,12 @@ validateEnvironment();
 // Configure a file to persist the agent's CDP MPC Wallet Data
 const WALLET_DATA_FILE = "wallet_data.txt";
 
+// Add logging utility
+function log(type: 'DEBUG' | 'INFO' | 'ERROR' | 'RESPONSE' | 'TOOL', message: string) {
+  const timestamp = new Date().toISOString();
+  console.log(`\n[${timestamp}] [${type}] ${message}`);
+}
+
 /**
  * Initialize the agent with CDP Agentkit
  *
@@ -66,24 +72,19 @@ const WALLET_DATA_FILE = "wallet_data.txt";
  */
 async function initializeAgent() {
   try {
-    // Initialize LLM
     const llm = new ChatOpenAI({
       model: "gpt-4o-mini",
     });
 
     let walletDataStr: string | null = null;
-
-    // Read existing wallet data if available
     if (fs.existsSync(WALLET_DATA_FILE)) {
       try {
         walletDataStr = fs.readFileSync(WALLET_DATA_FILE, "utf8");
       } catch (error) {
         console.error("Error reading wallet data:", error);
-        // Continue without wallet data
       }
     }
 
-    // Configure CDP Wallet Provider
     const config = {
       apiKeyName: process.env.CDP_API_KEY_NAME,
       apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
@@ -93,7 +94,6 @@ async function initializeAgent() {
 
     const walletProvider = await CdpWalletProvider.configureWithWallet(config);
 
-    // Initialize AgentKit
     const agentkit = await AgentKit.from({
       walletProvider,
       actionProviders: [
@@ -101,51 +101,56 @@ async function initializeAgent() {
         pythActionProvider(),
         walletActionProvider(),
         erc20ActionProvider(),
-        cdpApiActionProvider({
-          apiKeyName: process.env.CDP_API_KEY_NAME,
-          apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-        }),
-        cdpWalletActionProvider({
-          apiKeyName: process.env.CDP_API_KEY_NAME,
-          apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-        }),
+        aaveProtocolActionProvider(),
+        cdpApiActionProvider(config),
+        cdpWalletActionProvider(config),
       ],
     });
 
     const tools = await getLangChainTools(agentkit);
-
-    // Store buffered conversation history in memory
     const memory = new MemorySaver();
-    const agentConfig = { configurable: { thread_id: "CDP AgentKit Chatbot Example!" } };
 
-    // Create React Agent using the LLM and CDP AgentKit tools
+    const messageModifier = `
+      You are a helpful agent that can interact onchain using the Coinbase Developer Platform AgentKit. 
+      You can perform various operations including:
+      - Checking wallet balances and details
+      - Requesting funds from faucet on base-sepolia
+      - Wrapping and unwrapping ETH
+      - Interacting with Aave protocol (supply and withdraw assets)
+      
+      When displaying numbers:
+      - Convert hex values to decimal
+      - Show ETH/WETH amounts in a readable format (e.g., 0.1 ETH instead of 100000000000000000)
+      - Show USDC amounts with 6 decimal places
+      
+      You understand natural language commands like:
+      - "Show my wallet balance"
+      - "Can you get some test funds?"
+      - "I want to wrap 0.1 ETH"
+      - "Supply 0.1 WETH to Aave"
+      - "Withdraw my USDC from Aave"
+      
+      If there is a 5XX error, ask the user to try again later. Be concise and helpful.
+      For unsupported operations, direct users to docs.cdp.coinbase.com.
+    `;
+
     const agent = createReactAgent({
       llm,
       tools,
       checkpointSaver: memory,
-      messageModifier: `
-        You are a helpful agent that can interact onchain using the Coinbase Developer Platform AgentKit. You are 
-        empowered to interact onchain using your tools. If you ever need funds, you can request them from the 
-        faucet if you are on network ID 'base-sepolia'. If not, you can provide your wallet details and request 
-        funds from the user. Before executing your first action, get the wallet details to see what network 
-        you're on. If there is a 5XX (internal) HTTP error code, ask the user to try again later. If someone 
-        asks you to do something you can't do with your currently available tools, you must say so, and 
-        encourage them to implement it themselves using the CDP SDK + Agentkit, recommend they go to 
-        docs.cdp.coinbase.com for more information. Be concise and helpful with your responses. Refrain from 
-        restating your tools' descriptions unless it is explicitly requested.
-        `,
+      messageModifier,
     });
 
-    // Save wallet data
     const exportedWallet = await walletProvider.exportWallet();
     fs.writeFileSync(WALLET_DATA_FILE, JSON.stringify(exportedWallet));
 
-    return { agent, config: agentConfig };
+    return { agent, config: { configurable: { thread_id: "CDP AgentKit Chatbot!" } } };
   } catch (error) {
     console.error("Failed to initialize agent:", error);
-    throw error; // Re-throw to be handled by caller
+    throw error;
   }
 }
+
 /**
  * Run the agent autonomously with specified intervals
  */
@@ -179,163 +184,136 @@ async function runAutonomousMode(agent: any, config: any, interval = 10) {
   }
 }
 
-/**
- * Main entry point
- */
-async function main() {
-  let isRunning = true;
-  
-  try {
-    const { agent, config } = await initializeAgent();
-    
-    while (isRunning) {
-      console.clear();
-      console.log("\nAvailable modes:");
-      console.log("1. chat      - Terminal chat mode");
-      console.log("2. telegram  - Telegram interface mode");
-      console.log("3. auto      - Autonomous mode (not implemented yet)");
-      
-      const choice = await new Promise<string>((resolve) => {
-        const rl = readline.createInterface({
-          input: process.stdin,
-          output: process.stdout,
-        });
-        
-        const handleChoice = (answer: string) => {
-          rl.removeListener('line', handleChoice);
-          rl.close();
-          resolve(answer);
-        };
+async function chooseMode(): Promise<"chat" | "auto" | "telegram" | "exit"> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
 
-        rl.question("\nChoose a mode (1/2/3): ", handleChoice);
-      });
-      
-      switch(choice) {
-        case "1":
-          await runChatMode(agent, config);
-          break;
-        
-        case "2":
-          if (!process.env.TELEGRAM_BOT_TOKEN) {
-            console.error("Error: TELEGRAM_BOT_TOKEN is not set in environment variables");
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            continue;
-          }
-          try {
-            console.log("\nStarting Telegram mode...");
-            telegramBot = new TelegramBotImplementation(process.env.TELEGRAM_BOT_TOKEN, agent, config);
-            
-            // Wait for bot to exit
-            await telegramBot.waitForExit();
-            console.log("\nReturning to menu...");
-          } catch (error) {
-            console.error('Failed to start Telegram mode:', error);
-            await new Promise(resolve => setTimeout(resolve, 2000));
-          }
-          break;
-        
-        case "3":
-          console.log("Autonomous mode is not implemented yet.");
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          continue;
-        
-        default:
-          console.log("Invalid choice. Please try again.");
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          continue;
-      }
-    }
-  } catch (error) {
-    console.error('Failed to start application:', error);
-    process.exit(1);
+  console.clear();
+  console.log("\nAvailable modes:");
+  console.log("1. chat    - Interactive chat mode");
+  console.log("2. telegram - Telegram interface mode");
+  console.log("3. auto    - Autonomous mode (disabled)");
+  console.log("\nType 'kill' at any time to terminate the application");
+
+  const answer = await new Promise<string>(resolve => 
+    rl.question("\nChoose a mode (1/2/3): ", resolve)
+  );
+  rl.close();
+
+  const choice = answer.toLowerCase().trim();
+  if (choice === 'kill') {
+    console.log('Terminating application...');
+    process.exit(0);
+  }
+
+  switch(choice) {
+    case "1":
+    case "chat": return "chat";
+    case "2":
+    case "telegram": return "telegram";
+    case "3":
+    case "auto": return "auto";
+    default: return "exit";
   }
 }
 
-/**
- * Run the agent interactively based on user input
- */
 async function runChatMode(agent: any, config: any) {
-  let rl: readline.Interface | null = null;
-  
+  log('INFO', "Starting chat mode... Type 'exit' to return to menu, 'kill' to terminate application.");
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
   try {
-    // Create readline interface
-    rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      prompt: '> '
-    });
+    while (true) {
+      const userInput = await new Promise<string>(resolve => 
+        rl.question("> ", resolve)
+      );
 
-    // Store the message handler function
-    const handleMessage = async (input: string) => {
-      const trimmedInput = input.trim().toLowerCase();
-      
-      if (!trimmedInput) {
-        rl?.prompt();
-        return;
+      if (!userInput.trim()) {
+        continue;
       }
 
-      // Handle commands first
-      switch(trimmedInput) {
-        case 'exit':
-          console.log('Returning to menu...');
-          if (rl) {
-            rl.removeListener('line', handleMessage);
-            rl.close();
-          }
-          return;
-        
-        case 'kill':
-          console.log('Terminating application...');
-          process.exit(0);
-          return;
-          
-        default:
-          // Only process with agent if it's not a command
+      if (userInput.toLowerCase() === "kill") {
+        log('INFO', "Terminating application...");
+        process.exit(0);
+      }
+
+      if (userInput.toLowerCase() === "exit") {
+        log('INFO', "Returning to menu...");
+        break;
+      }
+
+      log('DEBUG', `Processing user input: ${userInput}`);
+
+      try {
+        // Format the input to handle hex addresses properly
+        const formattedInput = userInput.replace(/0x[a-fA-F0-9]+/g, (match: string) => {
           try {
-            const stream = await agent.stream({ messages: [new HumanMessage(input)] }, config);
-            let fullResponse = '';
-            for await (const chunk of stream) {
-              if ("agent" in chunk) {
-                fullResponse = chunk.agent.messages[0].content;
-              } else if ("tools" in chunk) {
-                console.log(chunk.tools.messages[0].content);
-              }
-            }
-            // Print the complete response at once
-            if (fullResponse) {
-              console.log(fullResponse);
-            }
-          } catch (error) {
-            console.error("Error processing message:", error);
+            // Don't convert if it looks like an address (40 chars after 0x)
+            if (match.length === 42) return match;
+            return BigInt(match).toString();
+          } catch {
+            return match;
           }
+        });
+
+        log('DEBUG', `Sending formatted input to agent: ${formattedInput}`);
+
+        const stream = await agent.stream(
+          { messages: [new HumanMessage(formattedInput)] },
+          config
+        );
+
+        for await (const chunk of stream) {
+          if ("agent" in chunk) {
+            const content = chunk.agent?.messages?.[0]?.content;
+            if (content) {
+              // Format response but preserve addresses
+              const formattedContent = content.replace(/0x[a-fA-F0-9]+/g, (match: string) => {
+                try {
+                  if (match.length === 42) return match;
+                  return BigInt(match).toString();
+                } catch {
+                  return match;
+                }
+              });
+              log('RESPONSE', formattedContent);
+            }
+          } else if ("tools" in chunk) {
+            const content = chunk.tools?.messages?.[0]?.content;
+            if (content) {
+              // Format tool response but preserve addresses
+              const formattedContent = content.replace(/0x[a-fA-F0-9]+/g, (match: string) => {
+                try {
+                  if (match.length === 42) return match;
+                  return BigInt(match).toString();
+                } catch {
+                  return match;
+                }
+              });
+              log('TOOL', formattedContent);
+            }
+          }
+          console.log("-------------------");
+        }
+      } catch (error) {
+        log('ERROR', `Failed to process message: ${error instanceof Error ? error.message : String(error)}`);
+        if (error instanceof Error && error.stack) {
+          log('DEBUG', `Stack trace: ${error.stack}`);
+        }
       }
-      
-      rl?.prompt();
-    };
-
-    // Print welcome message once
-    console.clear();
-    console.log("\nTerminal chat mode started. Type 'exit' to return to menu, 'kill' to terminate application.");
-    rl.prompt();
-
-    // Add single listener
-    rl.removeAllListeners('line');
-    rl.on('line', handleMessage);
-
-    // Handle cleanup
-    await new Promise<void>((resolve) => {
-      rl?.once('close', () => {
-        rl?.removeListener('line', handleMessage);
-        resolve();
-      });
-    });
-
-  } catch (error) {
-    console.error("Error:", error);
-    if (rl) {
-      rl.close();
     }
-    process.exit(1);
+  } catch (error) {
+    log('ERROR', `Fatal error in chat mode: ${error instanceof Error ? error.message : String(error)}`);
+    if (error instanceof Error && error.stack) {
+      log('DEBUG', `Stack trace: ${error.stack}`);
+    }
+  } finally {
+    rl.close();
   }
 }
 
@@ -377,7 +355,7 @@ class TelegramBotImplementation implements TelegramIntegration {
     });
 
     console.log('\nTelegram bot is ready! Send /start in your Telegram chat.');
-    console.log('Use /exit to return to menu or /kill to terminate the app.\n');
+    console.log('Use /exit to return to terminal mode or /kill to terminate the app.\n');
   }
 
   async sendMessage(text: string, chatId: number): Promise<void> {
@@ -439,7 +417,7 @@ class TelegramBotImplementation implements TelegramIntegration {
               }
             );
             
-            let toolResponses = [];
+            let toolResponses: string[] = [];
             let agentResponse = '';
             
             for await (const chunk of stream) {
@@ -463,7 +441,7 @@ class TelegramBotImplementation implements TelegramIntegration {
             if (agentResponse.trim()) {
               await this.sendMessage(agentResponse, chatId);
               // Add the agent's response to the context
-              this.agentContext[chatId].messages.push(new AIMessage(agentResponse));
+              this.agentContext[chatId].messages.push(new HumanMessage(agentResponse));
             }
 
           } catch (error) {
@@ -502,4 +480,45 @@ if (require.main === module) {
     console.error("Fatal error:", error);
     process.exit(1);
   });
+}
+
+async function main() {
+  try {
+    const { agent, config } = await initializeAgent();
+    
+    while (true) {
+      const mode = await chooseMode();
+      
+      switch(mode) {
+        case "chat":
+          await runChatMode(agent, config);
+          break;
+        case "telegram":
+          if (!process.env.TELEGRAM_BOT_TOKEN) {
+            console.error("Error: TELEGRAM_BOT_TOKEN is not set");
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            break;
+          }
+          // Initialize and run Telegram bot
+          telegramBot = new TelegramBotImplementation(
+            process.env.TELEGRAM_BOT_TOKEN,
+            agent,
+            config
+          );
+          await telegramBot.waitForExit();
+          break;
+        case "auto":
+          console.log("Autonomous mode is currently disabled.");
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          break;
+        case "exit":
+          console.log("Invalid choice. Please try again.");
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          break;
+      }
+    }
+  } catch (error) {
+    console.error("Fatal error:", error);
+    process.exit(1);
+  }
 }
