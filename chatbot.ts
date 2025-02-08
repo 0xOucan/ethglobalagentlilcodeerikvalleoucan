@@ -7,6 +7,7 @@ import {
   cdpApiActionProvider,
   cdpWalletActionProvider,
   pythActionProvider,
+  EvmWalletProvider,
 } from "@coinbase/agentkit";
 
 import { aaveProtocolActionProvider } from "./src/action-providers/Aave";
@@ -19,6 +20,15 @@ import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as readline from "readline";
 import TelegramBot from 'node-telegram-bot-api';
+import { isAaveError } from "./src/action-providers/Aave/errors";
+import { 
+  WETH_ADDRESS, 
+  ERC20_ABI 
+} from "./src/action-providers/Aave/constants";
+import { formatUnits } from "viem";
+import type { Address } from "viem";
+import { StructuredTool } from "@langchain/core/tools";
+import { z } from "zod";
 
 dotenv.config();
 /**
@@ -29,25 +39,45 @@ dotenv.config();
  */
 function validateEnvironment(): void {
   const missingVars: string[] = [];
+  const requiredVars = [
+    {
+      name: "OPENAI_API_KEY",
+      description: "OpenAI API key for the language model"
+    },
+    {
+      name: "CDP_API_KEY_NAME",
+      description: "Coinbase Developer Platform API key name"
+    },
+    {
+      name: "CDP_API_KEY_PRIVATE_KEY",
+      description: "Coinbase Developer Platform private key (PEM format)"
+    },
+    {
+      name: "TELEGRAM_BOT_TOKEN",
+      description: "Telegram bot token (optional for chat mode)"
+    }
+  ];
 
-  // Check required variables
-  const requiredVars = ["OPENAI_API_KEY", "CDP_API_KEY_NAME", "CDP_API_KEY_PRIVATE_KEY", "TELEGRAM_BOT_TOKEN"];
-  requiredVars.forEach(varName => {
-    if (!process.env[varName]) {
-      missingVars.push(varName);
+  requiredVars.forEach(({ name, description }) => {
+    if (!process.env[name]) {
+      missingVars.push(`${name} - ${description}`);
     }
   });
 
-  // Exit if any required variables are missing
   if (missingVars.length > 0) {
     console.error("Error: Required environment variables are not set");
-    missingVars.forEach(varName => {
-      console.error(`${varName}=your_${varName.toLowerCase()}_here`);
+    console.error("\nMissing variables:");
+    missingVars.forEach(variable => {
+      console.error(`- ${variable}`);
+    });
+    console.error("\nPlease add these to your .env file:");
+    missingVars.forEach(variable => {
+      const name = variable.split(" - ")[0];
+      console.error(`${name}=your_${name.toLowerCase()}_here`);
     });
     process.exit(1);
   }
 
-  // Warn about optional NETWORK_ID
   if (!process.env.NETWORK_ID) {
     console.warn("Warning: NETWORK_ID not set, defaulting to base-sepolia testnet");
   }
@@ -56,13 +86,56 @@ function validateEnvironment(): void {
 // Add this right after imports and before any other code
 validateEnvironment();
 
-// Configure a file to persist the agent's CDP MPC Wallet Data
-const WALLET_DATA_FILE = "wallet_data.txt";
+// Update file extension to .json for better clarity
+const WALLET_DATA_FILE = "wallet_data.json";
 
-// Add logging utility
-function log(type: 'DEBUG' | 'INFO' | 'ERROR' | 'RESPONSE' | 'TOOL', message: string) {
+// Add more detailed logging
+function log(type: 'DEBUG' | 'INFO' | 'ERROR' | 'RESPONSE' | 'TOOL' | 'AAVE', message: string) {
   const timestamp = new Date().toISOString();
   console.log(`\n[${timestamp}] [${type}] ${message}`);
+}
+
+// Add Aave-specific logging
+function logAaveOperation(operation: string, details: any) {
+  log('AAVE', `${operation}: ${JSON.stringify(details, null, 2)}`);
+}
+
+// Define the Aave supply tool schema
+const SupplyToolSchema = z.object({
+  asset: z.enum(["WETH", "USDC"]),
+  amount: z.string()
+});
+
+// Define the input type for the supply tool
+type SupplyInput = z.infer<typeof SupplyToolSchema>;
+
+// Create a proper tool class by extending StructuredTool
+class AaveSupplyTool extends StructuredTool<typeof SupplyToolSchema> {
+    name = "supply_to_aave";
+    description = "Supply assets (WETH or USDC) to Aave lending protocol";
+    schema = SupplyToolSchema;
+
+    protected async _call(args: SupplyInput): Promise<string> {
+        const { asset, amount } = args;
+        try {
+            // Here we'll implement the actual supply logic
+            // For now, just return a message
+            return `Supplying ${amount} ${asset} to Aave`;
+        } catch (error) {
+            return handleAaveError(error);
+        }
+    }
+}
+
+// Create an instance of our tool
+const aaveSupplyTool = new AaveSupplyTool();
+
+// Define CDP configuration interface
+interface CdpConfig {
+  apiKeyName: string;
+  apiKeyPrivateKey: string;
+  cdpWalletData?: string;
+  networkId?: string;
 }
 
 /**
@@ -76,38 +149,76 @@ async function initializeAgent() {
       model: "gpt-4o-mini",
     });
 
-    let walletDataStr: string | null = null;
+    // Read or create wallet data with proper error handling
+    let walletData: string | undefined;
     if (fs.existsSync(WALLET_DATA_FILE)) {
       try {
-        walletDataStr = fs.readFileSync(WALLET_DATA_FILE, "utf8");
+        const rawData = fs.readFileSync(WALLET_DATA_FILE, 'utf8');
+        // Validate that the data is proper JSON
+        JSON.parse(rawData); // This will throw if invalid
+        walletData = rawData;
+        log('INFO', "Loaded existing wallet data");
       } catch (error) {
-        console.error("Error reading wallet data:", error);
+        log('INFO', "Invalid wallet data found, creating new wallet...");
+        // Delete invalid wallet file
+        fs.unlinkSync(WALLET_DATA_FILE);
+        walletData = undefined;
       }
     }
 
-    const config = {
-      apiKeyName: process.env.CDP_API_KEY_NAME,
-      apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-      cdpWalletData: walletDataStr || undefined,
-      networkId: process.env.NETWORK_ID || "base-sepolia",
+    // Create CDP configuration with proper key formatting
+    const cdpConfig: CdpConfig = {
+      apiKeyName: process.env.CDP_API_KEY_NAME!,
+      apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY!
+        .replace(/\\n/g, '\n')
+        .replace(/^"|"$/g, ''), // Remove any surrounding quotes
+      networkId: process.env.NETWORK_ID || "base-sepolia"
     };
 
-    const walletProvider = await CdpWalletProvider.configureWithWallet(config);
+    // Initialize wallet provider with proper configuration
+    const walletProvider = await CdpWalletProvider.configureWithWallet({
+      apiKeyName: cdpConfig.apiKeyName,
+      apiKeyPrivateKey: cdpConfig.apiKeyPrivateKey,
+      networkId: cdpConfig.networkId,
+      cdpWalletData: walletData // Pass the raw string data or undefined
+    });
 
-    const agentkit = await AgentKit.from({
+    try {
+      // Save the new wallet data
+      const exportedWallet = await walletProvider.exportWallet();
+      if (typeof exportedWallet === 'string') {
+        fs.writeFileSync(WALLET_DATA_FILE, exportedWallet);
+        log('INFO', "Saved new wallet data");
+      } else {
+        log('ERROR', "Failed to export wallet data: Invalid format");
+      }
+    } catch (error) {
+      log('ERROR', `Failed to save wallet data: ${error}`);
+    }
+
+    // Initialize AgentKit with the configured providers
+    const agentKit = await AgentKit.from({
       walletProvider,
       actionProviders: [
         wethActionProvider(),
-        pythActionProvider(),
         walletActionProvider(),
         erc20ActionProvider(),
+        cdpApiActionProvider({
+          apiKeyName: cdpConfig.apiKeyName,
+          apiKeyPrivateKey: cdpConfig.apiKeyPrivateKey
+        }),
+        cdpWalletActionProvider({
+          apiKeyName: cdpConfig.apiKeyName,
+          apiKeyPrivateKey: cdpConfig.apiKeyPrivateKey
+        }),
+        pythActionProvider(),
         aaveProtocolActionProvider(),
-        cdpApiActionProvider(config),
-        cdpWalletActionProvider(config),
       ],
     });
 
-    const tools = await getLangChainTools(agentkit);
+    const tools = await getLangChainTools(agentKit);
+    tools.push(aaveSupplyTool);
+
     const memory = new MemorySaver();
 
     const messageModifier = `
@@ -140,9 +251,6 @@ async function initializeAgent() {
       checkpointSaver: memory,
       messageModifier,
     });
-
-    const exportedWallet = await walletProvider.exportWallet();
-    fs.writeFileSync(WALLET_DATA_FILE, JSON.stringify(exportedWallet));
 
     return { agent, config: { configurable: { thread_id: "CDP AgentKit Chatbot!" } } };
   } catch (error) {
@@ -522,3 +630,67 @@ async function main() {
     process.exit(1);
   }
 }
+
+// Update error handling with proper typing
+function handleAaveError(error: unknown) {
+  if (isAaveError(error)) {
+    const { code, message, details } = error;
+    log('ERROR', `Aave operation failed: ${message}`);
+    if (details) {
+      log('DEBUG', `Error details: ${JSON.stringify(details, null, 2)}`);
+    }
+    return `Operation failed: ${message}`;
+  }
+  return 'An unexpected error occurred during the Aave operation';
+}
+
+// Update Aave supply handler with proper typing
+async function handleAaveSupply(
+  walletProvider: EvmWalletProvider, 
+  asset: "WETH" | "USDC", 
+  amount: string
+) {
+  try {
+    // 1. First check WETH balance
+    const wethBalance = await walletProvider.readContract({
+      address: WETH_ADDRESS as Address,
+      abi: ERC20_ABI,
+      functionName: "balanceOf",
+      args: [await walletProvider.getAddress()]
+    }) as bigint;
+
+    log('DEBUG', `Current WETH balance: ${formatUnits(wethBalance, 18)} WETH`);
+
+    // 2. Then try to supply
+    const aaveProvider = aaveProtocolActionProvider();
+    const result = await aaveProvider.supply(walletProvider, {
+      asset,
+      amount
+    });
+
+    return result;
+  } catch (error) {
+    return handleAaveError(error);
+  }
+}
+
+const SYSTEM_PROMPT = `You are a helpful AI assistant that can help users interact with DeFi protocols.
+
+For Aave operations:
+1. Always check balances before attempting operations
+2. Use proper decimal formatting (18 for WETH, 6 for USDC)
+3. Ensure minimum amounts are met (0.0001 minimum for WETH)
+4. Handle operations in sequence (approve -> supply)
+5. Provide clear feedback about operation status
+
+Available actions for Aave:
+- supply_to_aave: Supply WETH or USDC to Aave
+- withdraw_from_aave: Withdraw supplied assets
+- borrow_from_aave: Borrow assets (requires collateral)
+- repay_to_aave: Repay borrowed assets
+
+When users want to supply to Aave:
+1. Check their token balance first
+2. Ensure they have approved the Aave contract
+3. Execute the supply with proper amount formatting
+4. Provide clear transaction status updates`;
