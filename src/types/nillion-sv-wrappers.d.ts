@@ -36,6 +36,10 @@ declare module 'nillion-sv-wrappers' {
         createRecord(collection: string, data: any): Promise<any>;
         getRecords<T>(collection: string, filter?: object): Promise<T[]>;
         updateRecord(collection: string, filter: object, update: object): Promise<any>;
+        writeToNodes(data: any[]): Promise<any>;
+        readFromNodes(filter?: object): Promise<any[]>;
+        deleteDataFromNodes(filter?: object): Promise<any>;
+        flushData(): Promise<any>;
     }
 
     export class NilQLWrapper {
@@ -43,5 +47,7 @@ declare module 'nillion-sv-wrappers' {
         init(): Promise<void>;
         encrypt(data: any): Promise<any[]>;
         decrypt(shares: any[]): Promise<any>;
+        prepareAndAllot(data: any): Promise<any>;
+        unify(shares: any[]): Promise<any>;
     }
 }
