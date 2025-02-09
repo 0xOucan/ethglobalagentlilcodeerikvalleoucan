@@ -29,6 +29,8 @@ import { formatUnits } from "viem";
 import type { Address } from "viem";
 import { StructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
+import { SecretVaultApiClient } from "./src/SecretVaultAPI/apiClient";
+import { createSecretVaultConfig } from "./src/SecretVaultAPI/config";
 
 dotenv.config();
 /**
@@ -160,43 +162,40 @@ async function initializeAgent() {
         log('INFO', "Loaded existing wallet data");
       } catch (error) {
         log('INFO', "Invalid wallet data found, creating new wallet...");
-        // Delete invalid wallet file
         fs.unlinkSync(WALLET_DATA_FILE);
         walletData = undefined;
       }
     }
 
-    // Create CDP configuration with proper key formatting
+    // Create CDP configuration
     const cdpConfig: CdpConfig = {
       apiKeyName: process.env.CDP_API_KEY_NAME!,
       apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY!
         .replace(/\\n/g, '\n')
-        .replace(/^"|"$/g, ''), // Remove any surrounding quotes
+        .replace(/^"|"$/g, ''),
       networkId: process.env.NETWORK_ID || "base-sepolia"
     };
 
-    // Initialize wallet provider with proper configuration
+    // Initialize CDP wallet provider
     const walletProvider = await CdpWalletProvider.configureWithWallet({
       apiKeyName: cdpConfig.apiKeyName,
       apiKeyPrivateKey: cdpConfig.apiKeyPrivateKey,
       networkId: cdpConfig.networkId,
-      cdpWalletData: walletData // Pass the raw string data or undefined
+      cdpWalletData: walletData
     });
 
     try {
-      // Save the new wallet data if it was just created
+      // Save the new wallet data
       const exportedWallet = await walletProvider.exportWallet();
       if (typeof exportedWallet === 'string') {
         fs.writeFileSync(WALLET_DATA_FILE, exportedWallet);
-        log('INFO', "Saved new wallet data");
-      } else {
-        log('ERROR', "Failed to export wallet data: Invalid format");
+        log('INFO', "Saved wallet data");
       }
     } catch (error) {
       log('ERROR', `Failed to save wallet data: ${error}`);
     }
 
-    // Initialize AgentKit with the configured providers
+    // Initialize AgentKit with CDP wallet provider
     const agentKit = await AgentKit.from({
       walletProvider,
       actionProviders: [
@@ -231,17 +230,10 @@ async function initializeAgent() {
       
       When displaying numbers:
       - Convert hex values to decimal
-      - Show ETH/WETH amounts in a readable format (e.g., 0.1 ETH instead of 100000000000000000)
+      - Show ETH/WETH amounts in a readable format
       - Show USDC amounts with 6 decimal places
       
-      You understand natural language commands like:
-      - "Show my wallet balance"
-      - "Can you get some test funds?"
-      - "I want to wrap 0.1 ETH"
-      - "Supply 0.1 WETH to Aave"
-      - "Withdraw my USDC from Aave"
-      
-      If there is a 5XX error, ask the user to try again later. Be concise and helpful.
+      If there is a 5XX error, ask the user to try again later.
       For unsupported operations, direct users to docs.cdp.coinbase.com.
     `;
 

@@ -8,13 +8,13 @@
     "postinstall": "npm run build",
     "build": "tsc",
     "start": "NODE_OPTIONS='--no-warnings' ts-node ./chatbot.ts",
-    "dev": "nodemon ./chatbot.ts",
+    "dev": "nodemon ./src/chatbot.ts",
     "test": "jest",
     "test:watch": "jest --watch",
-    "lint": "eslint -c .eslintrc.json *.ts",
-    "lint:fix": "eslint -c .eslintrc.json *.ts --fix",
-    "format": "prettier --write \"**/*.{ts,js,cjs,json,md}\"",
-    "format:check": "prettier -c .prettierrc --check \"**/*.{ts,js,cjs,json,md}\"",
+    "lint": "eslint -c .eslintrc.json src/**/*.ts",
+    "lint:fix": "eslint -c .eslintrc.json src/**/*.ts --fix",
+    "format": "prettier --write \"src/**/*.{ts,js,cjs,json,md}\"",
+    "format:check": "prettier -c .prettierrc --check \"src/**/*.{ts,js,cjs,json,md}\"",
     "clean": "rm -rf node_modules && rm -rf dist && npm cache clean --force"
   },
   "dependencies": {
