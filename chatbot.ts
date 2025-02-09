@@ -31,6 +31,12 @@ import { StructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import { SecretVaultApiClient } from "./src/SecretVaultAPI/apiClient";
 import { createSecretVaultConfig } from "./src/SecretVaultAPI/config";
+import { 
+  Store, 
+  Inventory, 
+  StoreSchema, 
+  InventorySchema 
+} from "./src/SecretVaultAPI";
 
 dotenv.config();
 /**
@@ -132,6 +138,108 @@ class AaveSupplyTool extends StructuredTool<typeof SupplyToolSchema> {
 // Create an instance of our tool
 const aaveSupplyTool = new AaveSupplyTool();
 
+// Add SecretVault tool schemas
+const StoreToolSchema = z.object({
+  operation: z.enum(["create", "read", "update", "delete"]),
+  data: StoreSchema.optional(),
+  storeId: z.string().optional(),
+  filter: z.record(z.any()).optional()
+});
+
+const InventoryToolSchema = z.object({
+  operation: z.enum(["create", "read", "update", "delete"]),
+  data: InventorySchema.optional(),
+  inventoryId: z.string().optional(),
+  filter: z.record(z.any()).optional()
+});
+
+// Create SecretVault tools
+class StoreManagementTool extends StructuredTool<typeof StoreToolSchema> {
+  name = "manage_store";
+  description = "Manage store records in SecretVault (create, read, update, delete)";
+  schema = StoreToolSchema;
+  private client: SecretVaultApiClient;
+
+  constructor(client: SecretVaultApiClient) {
+    super();
+    this.client = client;
+  }
+
+  protected async _call(args: z.infer<typeof StoreToolSchema>): Promise<string> {
+    try {
+      switch (args.operation) {
+        case "create":
+          if (!args.data) throw new Error("Store data required for create operation");
+          const createResult = await this.client.createRecord("store", [args.data]);
+          return `Store created successfully: ${JSON.stringify(createResult)}`;
+
+        case "read":
+          const filter = args.filter || {};
+          const readResult = await this.client.readRecords("store", filter);
+          return `Retrieved stores: ${JSON.stringify(readResult)}`;
+
+        case "update":
+          if (!args.filter || !args.data) throw new Error("Filter and data required for update operation");
+          const updateResult = await this.client.updateRecords("store", args.filter, args.data);
+          return `Store updated successfully: ${JSON.stringify(updateResult)}`;
+
+        case "delete":
+          if (!args.filter) throw new Error("Filter required for delete operation");
+          const deleteResult = await this.client.deleteRecords("store", args.filter);
+          return `Store deleted successfully: ${JSON.stringify(deleteResult)}`;
+
+        default:
+          return "Invalid operation";
+      }
+    } catch (error) {
+      return handleSecretVaultError(error);
+    }
+  }
+}
+
+class InventoryManagementTool extends StructuredTool<typeof InventoryToolSchema> {
+  name = "manage_inventory";
+  description = "Manage inventory records in SecretVault (create, read, update, delete)";
+  schema = InventoryToolSchema;
+  private client: SecretVaultApiClient;
+
+  constructor(client: SecretVaultApiClient) {
+    super();
+    this.client = client;
+  }
+
+  protected async _call(args: z.infer<typeof InventoryToolSchema>): Promise<string> {
+    try {
+      switch (args.operation) {
+        case "create":
+          if (!args.data) throw new Error("Inventory data required for create operation");
+          const createResult = await this.client.createRecord("inventory", [args.data]);
+          return `Inventory created successfully: ${JSON.stringify(createResult)}`;
+
+        case "read":
+          const filter = args.filter || {};
+          const readResult = await this.client.readRecords("inventory", filter);
+          return `Retrieved inventory items: ${JSON.stringify(readResult)}`;
+
+        case "update":
+          if (!args.filter || !args.data) throw new Error("Filter and data required for update operation");
+          const updateResult = await this.client.updateRecords("inventory", args.filter, args.data);
+          return `Inventory updated successfully: ${JSON.stringify(updateResult)}`;
+
+        case "delete":
+          if (!args.filter) throw new Error("Filter required for delete operation");
+          const deleteResult = await this.client.deleteRecords("inventory", args.filter);
+          return `Inventory deleted successfully: ${JSON.stringify(deleteResult)}`;
+
+        default:
+          return "Invalid operation";
+      }
+    } catch (error) {
+      return handleSecretVaultError(error);
+    }
+  }
+}
+
 // Define CDP configuration interface
 interface CdpConfig {
   apiKeyName: string;
@@ -218,6 +326,16 @@ async function initializeAgent() {
     const tools = await getLangChainTools(agentKit);
     tools.push(aaveSupplyTool);
 
+    // Initialize SecretVault client
+    const svConfig = await createSecretVaultConfig();
+    const secretVaultClient = new SecretVaultApiClient(svConfig);
+    await secretVaultClient.init();
+
+    // Add SecretVault tools to the tools array
+    const storeManagementTool = new StoreManagementTool(secretVaultClient);
+    const inventoryManagementTool = new InventoryManagementTool(secretVaultClient);
+    tools.push(storeManagementTool, inventoryManagementTool);
+
     const memory = new MemorySaver();
 
     const messageModifier = `
@@ -235,6 +353,16 @@ async function initializeAgent() {
       
       If there is a 5XX error, ask the user to try again later.
       For unsupported operations, direct users to docs.cdp.coinbase.com.
+      
+      You can also manage store and inventory data using SecretVault:
+      - Create, read, update, and delete store records
+      - Create, read, update, and delete inventory records
+      - All data is securely stored and encrypted
+      
+      When working with SecretVault:
+      1. Validate all input data against the schemas
+      2. Handle errors appropriately
+      3. Provide clear feedback about operation status
     `;
 
     const agent = createReactAgent({
