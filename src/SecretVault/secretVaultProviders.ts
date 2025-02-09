@@ -4,7 +4,7 @@ import { z } from "zod";
 import { ActionProvider, CreateAction, Network, WalletProvider } from "@coinbase/agentkit";
 import { SecretVaultWrapper, InventoryItem } from 'nillion-sv-wrappers';
 import { StoreSchema, InventorySchema } from './schemas';
-import { createSecretVaultConfig, generateJWTTokens } from './config';
+import { createSecretVaultConfig } from './config';
 
 export class SecretVaultActionProvider extends ActionProvider<WalletProvider> {
     private svWrapper!: SecretVaultWrapper;
@@ -17,8 +17,7 @@ export class SecretVaultActionProvider extends ActionProvider<WalletProvider> {
 
     private async initializeWrapper(): Promise<void> {
         try {
-            const config = createSecretVaultConfig();
-            await generateJWTTokens(config);
+            const config = await createSecretVaultConfig();
             this.svWrapper = new SecretVaultWrapper(config.nodes, config.orgCredentials);
             await this.svWrapper.init();
             this.initialized = true;

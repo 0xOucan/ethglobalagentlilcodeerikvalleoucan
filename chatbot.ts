@@ -86,8 +86,8 @@ function validateEnvironment(): void {
 // Add this right after imports and before any other code
 validateEnvironment();
 
-// Update file extension to .json for better clarity
-const WALLET_DATA_FILE = "wallet_data.json";
+// Configure a file to persist the agent's CDP MPC Wallet Data
+const WALLET_DATA_FILE = "wallet_data.txt";
 
 // Add more detailed logging
 function log(type: 'DEBUG' | 'INFO' | 'ERROR' | 'RESPONSE' | 'TOOL' | 'AAVE', message: string) {
@@ -184,7 +184,7 @@ async function initializeAgent() {
     });
 
     try {
-      // Save the new wallet data
+      // Save the new wallet data if it was just created
       const exportedWallet = await walletProvider.exportWallet();
       if (typeof exportedWallet === 'string') {
         fs.writeFileSync(WALLET_DATA_FILE, exportedWallet);
@@ -672,6 +672,20 @@ async function handleAaveSupply(
   } catch (error) {
     return handleAaveError(error);
   }
+}
+
+// Add to your error handling functions
+function handleSecretVaultError(error: unknown): string {
+  if (error instanceof Error) {
+    if (error.message.includes('not initialized')) {
+      return "SecretVault is not initialized. Please try again in a moment.";
+    }
+    if (error.message.includes('record not found')) {
+      return "The requested record was not found in SecretVault.";
+    }
+    return `SecretVault operation failed: ${error.message}`;
+  }
+  return 'An unexpected error occurred during the SecretVault operation';
 }
 
 const SYSTEM_PROMPT = `You are a helpful AI assistant that can help users interact with DeFi protocols.
