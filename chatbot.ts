@@ -10,7 +10,6 @@ import {
   EvmWalletProvider,
 } from "@coinbase/agentkit";
 
-import { aaveProtocolActionProvider } from "./src/action-providers/Aave";
 import { getLangChainTools } from "@coinbase/agentkit-langchain";
 import { HumanMessage } from "@langchain/core/messages";
 import { MemorySaver } from "@langchain/langgraph";
@@ -20,11 +19,6 @@ import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as readline from "readline";
 import TelegramBot from 'node-telegram-bot-api';
-import { isAaveError } from "./src/action-providers/Aave/errors";
-import { 
-  WETH_ADDRESS, 
-  ERC20_ABI 
-} from "./src/action-providers/Aave/constants";
 import { formatUnits } from "viem";
 import type { Address } from "viem";
 import { StructuredTool } from "@langchain/core/tools";
@@ -98,66 +92,23 @@ validateEnvironment();
 const WALLET_DATA_FILE = "wallet_data.txt";
 
 // Add more detailed logging
-function log(type: 'DEBUG' | 'INFO' | 'ERROR' | 'RESPONSE' | 'TOOL' | 'AAVE', message: string) {
+function log(type: 'DEBUG' | 'INFO' | 'ERROR' | 'RESPONSE' | 'TOOL', message: string) {
   const timestamp = new Date().toISOString();
   console.log(`\n[${timestamp}] [${type}] ${message}`);
 }
 
-// Add Aave-specific logging
-function logAaveOperation(operation: string, details: any) {
-  log('AAVE', `${operation}: ${JSON.stringify(details, null, 2)}`);
-}
-
-// Define the Aave supply tool schema
-const SupplyToolSchema = z.object({
-  asset: z.enum(["WETH", "USDC"]),
-  amount: z.string()
-});
-
-// Define the input type for the supply tool
-type SupplyInput = z.infer<typeof SupplyToolSchema>;
-
-// Create a proper tool class by extending StructuredTool
-class AaveSupplyTool extends StructuredTool<typeof SupplyToolSchema> {
-    name = "supply_to_aave";
-    description = "Supply assets (WETH or USDC) to Aave lending protocol";
-    schema = SupplyToolSchema;
-
-    protected async _call(args: SupplyInput): Promise<string> {
-        const { asset, amount } = args;
-        try {
-            // Here we'll implement the actual supply logic
-            // For now, just return a message
-            return `Supplying ${amount} ${asset} to Aave`;
-        } catch (error) {
-            return handleAaveError(error);
-        }
-    }
-}
-
-// Create an instance of our tool
-const aaveSupplyTool = new AaveSupplyTool();
-
-// Add SecretVault tool schemas
-const StoreToolSchema = z.object({
-  operation: z.enum(["create", "read", "update", "delete"]),
-  data: StoreSchema.optional(),
-  storeId: z.string().optional(),
-  filter: z.record(z.any()).optional()
-});
-
-const InventoryToolSchema = z.object({
-  operation: z.enum(["create", "read", "update", "delete"]),
-  data: InventorySchema.optional(),
-  inventoryId: z.string().optional(),
-  filter: z.record(z.any()).optional()
-});
-
-// Create SecretVault tools
-class StoreManagementTool extends StructuredTool<typeof StoreToolSchema> {
+// Store Management Tool
+class StoreManagementTool extends StructuredTool {
   name = "manage_store";
-  description = "Manage store records in SecretVault (create, read, update, delete)";
-  schema = StoreToolSchema;
+  description = "Manage store records (create and view stores)";
+  schema = z.object({
+    action: z.enum(["create", "view"]),
+    storeName: z.string().optional(),
+    location: z.string().optional(),
+    ownerName: z.string().optional(),
+    contactInfo: z.string().optional()
+  });
+
   private client: SecretVaultApiClient;
 
   constructor(client: SecretVaultApiClient) {
@@ -165,42 +116,48 @@ class StoreManagementTool extends StructuredTool<typeof StoreToolSchema> {
     this.client = client;
   }
 
-  protected async _call(args: z.infer<typeof StoreToolSchema>): Promise<string> {
+  async _call(args: any): Promise<string> {
     try {
-      switch (args.operation) {
-        case "create":
-          if (!args.data) throw new Error("Store data required for create operation");
-          const createResult = await this.client.createRecord("store", [args.data]);
-          return `Store created successfully: ${JSON.stringify(createResult)}`;
+      if (args.action === "create") {
+        if (!args.storeName || !args.location || !args.ownerName || !args.contactInfo) {
+          return "Please provide all required store information: name, location, owner name, and contact info";
+        }
 
-        case "read":
-          const filter = args.filter || {};
-          const readResult = await this.client.readRecords("store", filter);
-          return `Retrieved stores: ${JSON.stringify(readResult)}`;
-
-        case "update":
-          if (!args.filter || !args.data) throw new Error("Filter and data required for update operation");
-          const updateResult = await this.client.updateRecords("store", args.filter, args.data);
-          return `Store updated successfully: ${JSON.stringify(updateResult)}`;
-
-        case "delete":
-          if (!args.filter) throw new Error("Filter required for delete operation");
-          const deleteResult = await this.client.deleteRecords("store", args.filter);
-          return `Store deleted successfully: ${JSON.stringify(deleteResult)}`;
-
-        default:
-          return "Invalid operation";
+        const store = await this.client.createStore(
+          args.storeName,
+          args.location,
+          args.ownerName,
+          args.contactInfo
+        );
+        return `Store created successfully: ${JSON.stringify(store)}`;
       }
-    } catch (error) {
-      return handleSecretVaultError(error);
+
+      if (args.action === "view") {
+        const stores = await this.client.getStores();
+        return `Current stores: ${JSON.stringify(stores)}`;
+      }
+
+      return "Invalid action. Use 'create' or 'view'";
+    } catch (error: any) {
+      return `Store operation failed: ${error.message}`;
     }
   }
 }
 
-class InventoryManagementTool extends StructuredTool<typeof InventoryToolSchema> {
+// Inventory Management Tool
+class InventoryManagementTool extends StructuredTool {
   name = "manage_inventory";
-  description = "Manage inventory records in SecretVault (create, read, update, delete)";
-  schema = InventoryToolSchema;
+  description = "Manage store inventory (add and view products)";
+  schema = z.object({
+    action: z.enum(["add", "view"]),
+    storeId: z.string(),
+    products: z.array(z.object({
+      productName: z.string(),
+      quantity: z.number(),
+      salePrice: z.number()
+    })).optional()
+  });
+
   private client: SecretVaultApiClient;
 
   constructor(client: SecretVaultApiClient) {
@@ -208,44 +165,30 @@ class InventoryManagementTool extends StructuredTool<typeof InventoryToolSchema>
     this.client = client;
   }
 
-  protected async _call(args: z.infer<typeof InventoryToolSchema>): Promise<string> {
+  async _call(args: any): Promise<string> {
     try {
-      switch (args.operation) {
-        case "create":
-          if (!args.data) throw new Error("Inventory data required for create operation");
-          const createResult = await this.client.createRecord("inventory", [args.data]);
-          return `Inventory created successfully: ${JSON.stringify(createResult)}`;
+      if (args.action === "add") {
+        if (!args.products || args.products.length === 0) {
+          return "Please provide product information to add to inventory";
+        }
 
-        case "read":
-          const filter = args.filter || {};
-          const readResult = await this.client.readRecords("inventory", filter);
-          return `Retrieved inventory items: ${JSON.stringify(readResult)}`;
-
-        case "update":
-          if (!args.filter || !args.data) throw new Error("Filter and data required for update operation");
-          const updateResult = await this.client.updateRecords("inventory", args.filter, args.data);
-          return `Inventory updated successfully: ${JSON.stringify(updateResult)}`;
-
-        case "delete":
-          if (!args.filter) throw new Error("Filter required for delete operation");
-          const deleteResult = await this.client.deleteRecords("inventory", args.filter);
-          return `Inventory deleted successfully: ${JSON.stringify(deleteResult)}`;
-
-        default:
-          return "Invalid operation";
+        const inventory = await this.client.createInventory(
+          args.storeId,
+          args.products
+        );
+        return `Inventory added successfully: ${JSON.stringify(inventory)}`;
       }
-    } catch (error) {
-      return handleSecretVaultError(error);
+
+      if (args.action === "view") {
+        const inventory = await this.client.getInventory(args.storeId);
+        return `Current inventory: ${JSON.stringify(inventory)}`;
+      }
+
+      return "Invalid action. Use 'add' or 'view'";
+    } catch (error: any) {
+      return `Inventory operation failed: ${error.message}`;
     }
   }
-}
-
-// Define CDP configuration interface
-interface CdpConfig {
-  apiKeyName: string;
-  apiKeyPrivateKey: string;
-  cdpWalletData?: string;
-  networkId?: string;
 }
 
 /**
@@ -255,126 +198,50 @@ interface CdpConfig {
  */
 async function initializeAgent() {
   try {
-    const llm = new ChatOpenAI({
-      model: "gpt-4o-mini",
+    const model = new ChatOpenAI({
+      modelName: process.env.MODEL_NAME || "gpt-4-turbo-preview",
+      temperature: 0.7,
+      maxTokens: 4096,
     });
 
-    // Read or create wallet data with proper error handling
-    let walletData: string | undefined;
-    if (fs.existsSync(WALLET_DATA_FILE)) {
-      try {
-        const rawData = fs.readFileSync(WALLET_DATA_FILE, 'utf8');
-        // Validate that the data is proper JSON
-        JSON.parse(rawData); // This will throw if invalid
-        walletData = rawData;
-        log('INFO', "Loaded existing wallet data");
-      } catch (error) {
-        log('INFO', "Invalid wallet data found, creating new wallet...");
-        fs.unlinkSync(WALLET_DATA_FILE);
-        walletData = undefined;
-      }
-    }
+    // Initialize tools array
+    const tools = [];
 
-    // Create CDP configuration
-    const cdpConfig: CdpConfig = {
-      apiKeyName: process.env.CDP_API_KEY_NAME!,
-      apiKeyPrivateKey: process.env.CDP_API_KEY_PRIVATE_KEY!
-        .replace(/\\n/g, '\n')
-        .replace(/^"|"$/g, ''),
-      networkId: process.env.NETWORK_ID || "base-sepolia"
-    };
-
-    // Initialize CDP wallet provider
-    const walletProvider = await CdpWalletProvider.configureWithWallet({
-      apiKeyName: cdpConfig.apiKeyName,
-      apiKeyPrivateKey: cdpConfig.apiKeyPrivateKey,
-      networkId: cdpConfig.networkId,
-      cdpWalletData: walletData
-    });
-
+    // Try to initialize SecretVault client
     try {
-      // Save the new wallet data
-      const exportedWallet = await walletProvider.exportWallet();
-      if (typeof exportedWallet === 'string') {
-        fs.writeFileSync(WALLET_DATA_FILE, exportedWallet);
-        log('INFO', "Saved wallet data");
+      const svConfig = await createSecretVaultConfig();
+      const secretVaultClient = new SecretVaultApiClient(svConfig);
+      const initialized = await secretVaultClient.init();
+      
+      if (initialized) {
+        const storeManagementTool = new StoreManagementTool(secretVaultClient);
+        const inventoryManagementTool = new InventoryManagementTool(secretVaultClient);
+        tools.push(storeManagementTool, inventoryManagementTool);
+        console.log('SecretVault tools added successfully');
+      } else {
+        console.log('SecretVault tools skipped - initialization failed');
       }
     } catch (error) {
-      log('ERROR', `Failed to save wallet data: ${error}`);
+      if (error instanceof Error) {
+        console.log('SecretVault integration skipped:', error.message);
+      } else {
+        console.log('SecretVault integration skipped: Unknown error');
+      }
     }
 
-    // Initialize AgentKit with CDP wallet provider
-    const agentKit = await AgentKit.from({
-      walletProvider,
-      actionProviders: [
-        wethActionProvider(),
-        walletActionProvider(),
-        erc20ActionProvider(),
-        cdpApiActionProvider({
-          apiKeyName: cdpConfig.apiKeyName,
-          apiKeyPrivateKey: cdpConfig.apiKeyPrivateKey
-        }),
-        cdpWalletActionProvider({
-          apiKeyName: cdpConfig.apiKeyName,
-          apiKeyPrivateKey: cdpConfig.apiKeyPrivateKey
-        }),
-        pythActionProvider(),
-        aaveProtocolActionProvider(),
-      ],
-    });
-
-    const tools = await getLangChainTools(agentKit);
-    tools.push(aaveSupplyTool);
-
-    // Initialize SecretVault client
-    const svConfig = await createSecretVaultConfig();
-    const secretVaultClient = new SecretVaultApiClient(svConfig);
-    await secretVaultClient.init();
-
-    // Add SecretVault tools to the tools array
-    const storeManagementTool = new StoreManagementTool(secretVaultClient);
-    const inventoryManagementTool = new InventoryManagementTool(secretVaultClient);
-    tools.push(storeManagementTool, inventoryManagementTool);
-
-    const memory = new MemorySaver();
-
-    const messageModifier = `
-      You are a helpful agent that can interact onchain using the Coinbase Developer Platform AgentKit. 
-      You can perform various operations including:
-      - Checking wallet balances and details
-      - Requesting funds from faucet on base-sepolia
-      - Wrapping and unwrapping ETH
-      - Interacting with Aave protocol (supply and withdraw assets)
-      
-      When displaying numbers:
-      - Convert hex values to decimal
-      - Show ETH/WETH amounts in a readable format
-      - Show USDC amounts with 6 decimal places
-      
-      If there is a 5XX error, ask the user to try again later.
-      For unsupported operations, direct users to docs.cdp.coinbase.com.
-      
-      You can also manage store and inventory data using SecretVault:
-      - Create, read, update, and delete store records
-      - Create, read, update, and delete inventory records
-      - All data is securely stored and encrypted
-      
-      When working with SecretVault:
-      1. Validate all input data against the schemas
-      2. Handle errors appropriately
-      3. Provide clear feedback about operation status
-    `;
-
+    // Create agent without memory (removed MemorySaver)
     const agent = createReactAgent({
-      llm,
-      tools,
-      checkpointSaver: memory,
-      messageModifier,
+      llm: model,
+      tools
     });
 
-    return { agent, config: { configurable: { thread_id: "CDP AgentKit Chatbot!" } } };
+    return { agent, config: { tools } };
   } catch (error) {
-    console.error("Failed to initialize agent:", error);
+    if (error instanceof Error) {
+      console.error("Failed to initialize agent:", error.message);
+    } else {
+      console.error("Failed to initialize agent: Unknown error");
+    }
     throw error;
   }
 }
@@ -750,81 +617,3 @@ async function main() {
     process.exit(1);
   }
 }
-
-// Update error handling with proper typing
-function handleAaveError(error: unknown) {
-  if (isAaveError(error)) {
-    const { code, message, details } = error;
-    log('ERROR', `Aave operation failed: ${message}`);
-    if (details) {
-      log('DEBUG', `Error details: ${JSON.stringify(details, null, 2)}`);
-    }
-    return `Operation failed: ${message}`;
-  }
-  return 'An unexpected error occurred during the Aave operation';
-}
-
-// Update Aave supply handler with proper typing
-async function handleAaveSupply(
-  walletProvider: EvmWalletProvider, 
-  asset: "WETH" | "USDC", 
-  amount: string
-) {
-  try {
-    // 1. First check WETH balance
-    const wethBalance = await walletProvider.readContract({
-      address: WETH_ADDRESS as Address,
-      abi: ERC20_ABI,
-      functionName: "balanceOf",
-      args: [await walletProvider.getAddress()]
-    }) as bigint;
-
-    log('DEBUG', `Current WETH balance: ${formatUnits(wethBalance, 18)} WETH`);
-
-    // 2. Then try to supply
-    const aaveProvider = aaveProtocolActionProvider();
-    const result = await aaveProvider.supply(walletProvider, {
-      asset,
-      amount
-    });
-
-    return result;
-  } catch (error) {
-    return handleAaveError(error);
-  }
-}
-
-// Add to your error handling functions
-function handleSecretVaultError(error: unknown): string {
-  if (error instanceof Error) {
-    if (error.message.includes('not initialized')) {
-      return "SecretVault is not initialized. Please try again in a moment.";
-    }
-    if (error.message.includes('record not found')) {
-      return "The requested record was not found in SecretVault.";
-    }
-    return `SecretVault operation failed: ${error.message}`;
-  }
-  return 'An unexpected error occurred during the SecretVault operation';
-}
-
-const SYSTEM_PROMPT = `You are a helpful AI assistant that can help users interact with DeFi protocols.
-
-For Aave operations:
-1. Always check balances before attempting operations
-2. Use proper decimal formatting (18 for WETH, 6 for USDC)
-3. Ensure minimum amounts are met (0.0001 minimum for WETH)
-4. Handle operations in sequence (approve -> supply)
-5. Provide clear feedback about operation status
-
-Available actions for Aave:
-- supply_to_aave: Supply WETH or USDC to Aave
-- withdraw_from_aave: Withdraw supplied assets
-- borrow_from_aave: Borrow assets (requires collateral)
-- repay_to_aave: Repay borrowed assets
-
-When users want to supply to Aave:
-1. Check their token balance first
-2. Ensure they have approved the Aave contract
-3. Execute the supply with proper amount formatting
-4. Provide clear transaction status updates`;
