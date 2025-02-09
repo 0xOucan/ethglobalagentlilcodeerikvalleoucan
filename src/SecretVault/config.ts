@@ -20,13 +20,19 @@ export interface SecretVaultConfig {
     nodes: z.infer<typeof NodeConfigSchema>[];
 }
 
-export function createSecretVaultConfig(): SecretVaultConfig {
+export async function createSecretVaultConfig(): Promise<SecretVaultConfig> {
     const requiredEnvVars = [
         'SV_PRIVATE_KEY',
         'SV_ORG_DID',
         'SV_NODE1_URL',
         'SV_NODE2_URL',
-        'SV_NODE3_URL'
+        'SV_NODE3_URL',
+        'SCHEMA_ID_MERCHANT',
+        'SCHEMA_ID_PRODUCT',
+        'SCHEMA_ID_SALES',
+        'SV_NODE1_DID',
+        'SV_NODE2_DID',
+        'SV_NODE3_DID'
     ];
 
     const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -42,18 +48,15 @@ export function createSecretVaultConfig(): SecretVaultConfig {
         nodes: [
             {
                 url: process.env.SV_NODE1_URL!,
-                did: 'did:nil:testnet:nillion1fnhettvcrsfu8zkd5zms4d820l0ct226c3zy8u',
-                jwt: process.env.SV_NODE1_JWT,
+                did: process.env.SV_NODE1_DID!,
             },
             {
                 url: process.env.SV_NODE2_URL!,
-                did: 'did:nil:testnet:nillion14x47xx85de0rg9dqunsdxg8jh82nvkax3jrl5g',
-                jwt: process.env.SV_NODE2_JWT,
+                did: process.env.SV_NODE2_DID!,
             },
             {
                 url: process.env.SV_NODE3_URL!,
-                did: 'did:nil:testnet:nillion167pglv9k7m4gj05rwj520a46tulkff332vlpjp',
-                jwt: process.env.SV_NODE3_JWT,
+                did: process.env.SV_NODE3_DID!,
             },
         ],
     };
@@ -65,15 +68,17 @@ export function createSecretVaultConfig(): SecretVaultConfig {
     return config;
 }
 
-export async function generateJWTTokens(config: SecretVaultConfig): Promise<void> {
-    const wrapper = new SecretVaultWrapper(config.nodes, config.orgCredentials);
-    await wrapper.init();
-    const tokens = await wrapper.generateTokensForAllNodes();
-    
-    // Update node configs with JWT tokens
-    config.nodes.forEach((node, index) => {
-        if (tokens[index] && tokens[index].token) {
-            node.jwt = tokens[index].token;
-        }
-    });
+export async function initializeSecretVault(config: SecretVaultConfig, schemaId: string): Promise<SecretVaultWrapper> {
+    try {
+        const wrapper = new SecretVaultWrapper(
+            config.nodes,
+            config.orgCredentials,
+            schemaId
+        );
+        await wrapper.init();
+        return wrapper;
+    } catch (error) {
+        console.error('Failed to initialize SecretVault wrapper:', error);
+        throw error;
+    }
 }
