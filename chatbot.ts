@@ -87,7 +87,7 @@ function validateEnvironment(): void {
 validateEnvironment();
 
 // Update file extension to .json for better clarity
-const WALLET_DATA_FILE = "wallet_data.json";
+const WALLET_DATA_FILE = "data/wallet_data.json";
 
 // Add more detailed logging
 function log(type: 'DEBUG' | 'INFO' | 'ERROR' | 'RESPONSE' | 'TOOL' | 'AAVE', message: string) {
@@ -182,6 +182,7 @@ async function initializeAgent() {
       networkId: cdpConfig.networkId,
       cdpWalletData: walletData // Pass the raw string data or undefined
     });
+    console.log("walletProvider", walletProvider);
 
     try {
       // Save the new wallet data

@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  chatbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: defi-chatbot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Volumen para persistir los datos del wallet
+      - wallet-data:/app/data
+    networks:
+      - bot-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(1)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+volumes:
+  wallet-data:
+    name: defi-chatbot-wallet-data
+
+networks:
+  bot-network:
+    name: defi-bot-network
+    driver: bridge 
