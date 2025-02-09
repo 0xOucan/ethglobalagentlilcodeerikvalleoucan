@@ -5,7 +5,6 @@
   "author": "@0xoucan @ErikValle @ArturVargas",
   "license": "Apache-2.0",
   "scripts": {
-    "postinstall": "npm run build",
     "build": "tsc",
     "start": "NODE_OPTIONS='--no-warnings' ts-node ./chatbot.ts",
     "dev": "nodemon ./chatbot.ts",
@@ -14,7 +13,10 @@
     "lint": "eslint -c .eslintrc.json *.ts",
     "lint:fix": "eslint -c .eslintrc.json *.ts --fix",
     "format": "prettier --write \"**/*.{ts,js,cjs,json,md}\"",
-    "format:check": "prettier -c .prettierrc --check \"**/*.{ts,js,cjs,json,md}\""
+    "format:check": "prettier -c .prettierrc --check \"**/*.{ts,js,cjs,json,md}\"",
+    "docker:build": "docker-compose build",
+    "docker:push": "docker-compose build && docker push <tu-usuario>/defi-chatbot:latest",
+    "docker:deploy": "docker-compose up -d"
   },
   "dependencies": {
     "@coinbase/agentkit": "^0.1.2",

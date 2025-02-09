@@ -1,55 +1,32 @@
-# Etapa de construcción
-FROM node:20-slim AS builder
+FROM --platform=linux/arm64 node:20-alpine
 
-# Establecer el directorio de trabajo
 WORKDIR /app
 
-# Copiar solo los archivos necesarios para instalar dependencias
+# Instalar dependencias del sistema
+RUN apk add --no-cache python3 make g++
+
+# Copiar archivos de proyecto
 COPY package*.json ./
 COPY tsconfig.json ./
-
-# Instalar dependencias incluyendo las de desarrollo
-RUN npm ci
-
-# Copiar el código fuente
 COPY . .
 
-# Compilar la aplicación TypeScript
+# Instalar dependencias y construir
+RUN npm ci
 RUN npm run build
 
-# Etapa de producción
-FROM node:20-slim AS production
+# Limpiar dependencias de desarrollo
+RUN npm prune --production
 
-# Establecer el directorio de trabajo
-WORKDIR /app
-
-# Crear directorio para datos persistentes
-RUN mkdir -p /app/data
-
-# Copiar solo los archivos necesarios desde la etapa de construcción
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/.env ./.env
-
-# Instalar solo las dependencias de producción
-RUN npm ci --only=production
-
-# Crear un usuario no root para mayor seguridad
-RUN addgroup --system --gid 1001 nodejs \
-    && adduser --system --uid 1001 nodeuser \
-    && chown -R nodeuser:nodejs /app
+# Configuración de usuario y volumen
+RUN mkdir -p /app/data && \
+    addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nodeuser && \
+    chown -R nodeuser:nodejs /app
 
 USER nodeuser
 
-# Variables de entorno
 ENV NODE_ENV=production
 
-# Healthcheck para verificar que la aplicación está funcionando
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "process.exit(1)"
+VOLUME ["/app/data"]
 
-# Comando para ejecutar la aplicación
-CMD ["node", "dist/chatbot.js"]
-
-# Volumen para datos persistentes
-VOLUME ["/app/data"] 
+CMD ["node", "dist/chatbot.js"] 

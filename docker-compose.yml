@@ -1,11 +1,8 @@
-version: '3.8'
-
 services:
   chatbot:
     build:
       context: .
       dockerfile: Dockerfile
-      target: production
     container_name: defi-chatbot
     restart: unless-stopped
     env_file: .env
@@ -20,6 +17,8 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+    # Asegurar compatibilidad con Colima
+    platform: linux/arm64
     deploy:
       resources:
         limits:
